@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AuthForm } from "@/components/UI/auth-form";
+import { AuthForm } from "@/components/ui/auth-form";
 import { signInAction } from "../actions/auth";
 
 export default function SignInPage() {
