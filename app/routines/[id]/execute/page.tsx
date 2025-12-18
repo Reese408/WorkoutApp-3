@@ -1,38 +1,26 @@
-// src/app/routines/[id]/execute/page.tsx
 import WorkoutExecutionClient from './WorkoutExecutionClient';
 import { notFound } from 'next/navigation';
-import pool from '@/lib/db';
+import { getRoutine } from "@/app/actions/routines";
 
 interface PageProps {
-  params: Promise<{ id: string }>;  // ← Promise in Next.js 15
+  params: Promise<{ id: string }>;
 }
 
-// Server Component - fetches workout data
 export default async function WorkoutExecutePage({ params }: PageProps) {
-  const { id } = await params;  // ← AWAIT params
+  const { id } = await params;
 
-  // Fetch workout routine details
-  try {
-    const result = await pool.query(
-      'SELECT id, name as title FROM workout_routines WHERE id = $1',  // ← Correct table
-      [id]
-    );
+  const result = await getRoutine(id);
 
-    if (result.rows.length === 0) {
-      notFound();
-    }
-
-    const routine = result.rows[0];
-
-    return (
-      <WorkoutExecutionClient 
-        workoutId={routine.id} 
-        workoutTitle={routine.title} 
-      />
-    );
-
-  } catch (error) {
-    console.error('Error loading workout:', error);
+  if (!result.success || !result.data) {
     notFound();
   }
+
+  const routine = result.data;
+
+  return (
+    <WorkoutExecutionClient
+      workoutId={routine.id}
+      workoutTitle={routine.name}
+    />
+  );
 }

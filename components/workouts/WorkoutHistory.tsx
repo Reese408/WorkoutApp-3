@@ -2,91 +2,86 @@
 
 import { useState } from 'react';
 import { Calendar, Clock, CheckCircle, TrendingUp } from 'lucide-react';
-import type { WorkoutLogWithDetails } from '@/models/WorkoutLog';
 import WorkoutHistoryCard from './WorkoutHistoryCard';
-import { useWorkoutLogs } from '@/lib/queries/useWorkoutLogs';
+import { useWorkoutHistory } from '@/hooks/use-workouts';
 
 interface WorkoutHistoryProps {
-  initialLogs?: WorkoutLogWithDetails[];
-  userIdentifier?: string;
+  initialLogs?: any[];
 }
 
-export default function WorkoutHistory({ initialLogs = [], userIdentifier }: WorkoutHistoryProps) {
+export default function WorkoutHistory({ initialLogs = [] }: WorkoutHistoryProps) {
   const [filter, setFilter] = useState<'all' | 'completed' | 'in-progress'>('all');
 
-  const { data, isLoading: loading } = useWorkoutLogs({
-    status: filter === 'all' ? undefined : filter === 'completed' ? 'completed' : 'active',
-  });
+  const { data: result, isLoading: loading } = useWorkoutHistory(50, 0);
+  const logs = result?.success ? result.data : initialLogs;
 
-  const logs = (data?.logs as any) || initialLogs;
-
-  const filteredLogs = logs.filter((log: WorkoutLogWithDetails) => {
-    if (filter === 'completed') return log.completed_at !== null;
-    if (filter === 'in-progress') return log.completed_at === null;
+  const filteredLogs = logs.filter((log: any) => {
+    if (filter === 'completed') return log.endTime !== null;
+    if (filter === 'in-progress') return log.endTime === null;
     return true;
   });
 
   const stats = {
     total: logs.length,
-    completed: logs.filter((l: any) => l.completed_at).length,
-    inProgress: logs.filter((l: any) => !l.completed_at).length,
-    totalMinutes: logs.reduce((sum: number, l: any) => sum + (l.duration_minutes || 0), 0),
+    completed: logs.filter((l: any) => l.endTime).length,
+    inProgress: logs.filter((l: any) => !l.endTime).length,
+    totalMinutes: logs.reduce((sum: number, l: any) => sum + (l.totalDuration || 0), 0),
   };
 
   return (
     <div className="space-y-6">
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Total Workouts</p>
-              <p className="text-2xl font-bold text-gray-900">{stats.total}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Total Workouts</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">{stats.total}</p>
             </div>
-            <Calendar className="w-8 h-8 text-blue-500" />
+            <Calendar className="w-8 h-8 text-blue-500 dark:text-blue-400" />
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Completed</p>
-              <p className="text-2xl font-bold text-green-600">{stats.completed}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Completed</p>
+              <p className="text-2xl font-bold text-green-600 dark:text-green-400">{stats.completed}</p>
             </div>
-            <CheckCircle className="w-8 h-8 text-green-500" />
+            <CheckCircle className="w-8 h-8 text-green-500 dark:text-green-400" />
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">In Progress</p>
-              <p className="text-2xl font-bold text-orange-600">{stats.inProgress}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">In Progress</p>
+              <p className="text-2xl font-bold text-orange-600 dark:text-orange-400">{stats.inProgress}</p>
             </div>
-            <TrendingUp className="w-8 h-8 text-orange-500" />
+            <TrendingUp className="w-8 h-8 text-orange-500 dark:text-orange-400" />
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Total Time</p>
-              <p className="text-2xl font-bold text-purple-600">{stats.totalMinutes}m</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Total Time</p>
+              <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">{stats.totalMinutes}m</p>
             </div>
-            <Clock className="w-8 h-8 text-purple-500" />
+            <Clock className="w-8 h-8 text-purple-500 dark:text-purple-400" />
           </div>
         </div>
       </div>
 
       {/* Filter Tabs */}
-      <div className="bg-white rounded-lg shadow p-4">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
         <div className="flex gap-2">
           <button
             onClick={() => setFilter('all')}
             className={`px-4 py-2 rounded-lg transition-colors ${
               filter === 'all'
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                ? 'bg-blue-600 dark:bg-blue-500 text-white'
+                : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
             }`}
           >
             All ({stats.total})
@@ -95,8 +90,8 @@ export default function WorkoutHistory({ initialLogs = [], userIdentifier }: Wor
             onClick={() => setFilter('completed')}
             className={`px-4 py-2 rounded-lg transition-colors ${
               filter === 'completed'
-                ? 'bg-green-600 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                ? 'bg-green-600 dark:bg-green-500 text-white'
+                : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
             }`}
           >
             Completed ({stats.completed})
@@ -105,8 +100,8 @@ export default function WorkoutHistory({ initialLogs = [], userIdentifier }: Wor
             onClick={() => setFilter('in-progress')}
             className={`px-4 py-2 rounded-lg transition-colors ${
               filter === 'in-progress'
-                ? 'bg-orange-600 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                ? 'bg-orange-600 dark:bg-orange-500 text-white'
+                : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
             }`}
           >
             In Progress ({stats.inProgress})

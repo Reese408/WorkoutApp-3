@@ -1,22 +1,20 @@
-// src/app/exercises/edit/[id]/page.tsx
 import ExerciseForm from "@/components/exercises/ExerciesForm";
-import { getExerciseById } from "@/lib/exercises";
+import { getExercise } from "@/app/actions/exercises";
 import { notFound } from "next/navigation";
 
 interface EditExercisePageProps {
-  params: {
+  params: Promise<{
     id: string;
-  };
+  }>;
 }
 
 export default async function EditExercisePage({ params }: EditExercisePageProps) {
-  // Fetch the exercise data server-side
-  const exercise = await getExerciseById(params.id);
-  
-  // If exercise doesn't exist, show 404
-  if (!exercise) {
+  const { id } = await params;
+  const result = await getExercise(id);
+
+  if (!result.success || !result.data) {
     notFound();
   }
 
-  return <ExerciseForm exercise={exercise} />;
+  return <ExerciseForm exercise={result.data} />;
 }

@@ -1,48 +1,45 @@
-// src/app/routines/edit/[id]/page.tsx
-import { cookies } from 'next/headers';
-import { redirect } from 'next/navigation';
+import { getRoutine } from "@/app/actions/routines";
+import { auth } from "@/lib/auth";
+import { headers } from "next/headers";
+import { redirect, notFound } from "next/navigation";
 import WorkoutEditClient from '@/components/workouts/WorkoutEditClient';
 
-async function getRoutine(id: string) {
-  const cookieStore = await cookies();
-  const token = cookieStore.get('auth_token')?.value;
-  if (!token) redirect('/login');
+export default async function EditRoutinePage({ params }: { params: Promise<{ id: string }> }) {
+  const session = await auth.api.getSession({
+    headers: await headers(),
+  });
 
-  const response = await fetch(
-    `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'}/api/workout-routines/${id}`,
-    {
-      headers: { Cookie: `auth_token=${token}` },
-      cache: 'no-store',
-    }
-  );
+  if (!session) {
+    redirect('/signin');
+  }
 
-  if (!response.ok) throw new Error('Failed to fetch routine');
-  const data = await response.json();
-  
-  // ✨ TRANSFORM DATA HERE for the form
-  const routine = data.routine;
-  return {
+  const { id } = await params;
+  const result = await getRoutine(id);
+
+  if (!result.success || !result.data) {
+    notFound();
+  }
+
+  const routine = result.data;
+
+  // Transform data for the form
+  const formData = {
     name: routine.name,
     description: routine.description || '',
     exercises: (routine.exercises || []).map((ex: any) => ({
-      exerciseId: ex.exercise_id,        // ← Transform to camelCase
-      exerciseName: ex.exercise_name,    // ← Transform to camelCase
-      sets: ex.sets || 3,
-      reps: ex.reps || 10,
-      timeMinutes: Math.round(ex.time_minutes) || 5,  // ← Transform to camelCase
-      order: ex.order || 0
+      exerciseId: ex.exerciseId,
+      exerciseName: ex.exercise.name,
+      sets: ex.targetSets || 3,
+      reps: ex.targetReps || 10,
+      timeMinutes: ex.targetDuration || 5,
+      order: ex.orderIndex || 0
     }))
   };
-}
-
-export default async function EditRoutinePage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  const routine = await getRoutine(id);
 
   return (
-    <div className="max-w-4xl mx-auto p-6">
-      <h1 className="text-3xl font-bold text-gray-900 mb-6">Edit Workout Routine</h1>
-      <WorkoutEditClient routineId={id} initialData={routine} />
+    <div className="max-w-4xl mx-auto p-6 bg-gray-50 dark:bg-gray-900 min-h-screen">
+      <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-6">Edit Workout Routine</h1>
+      <WorkoutEditClient routineId={id} initialData={formData} />
     </div>
   );
 }
