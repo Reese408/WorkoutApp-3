@@ -7,16 +7,25 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ============================================================================
+// AUTHENTICATION MODELS (Better Auth)
+// ============================================================================
+
 model User {
-  id            String    @id @default(cuid())
-  name          String?
-  email         String    @unique
-  emailVerified Boolean   @default(false)
-  image         String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  accounts      Account[]
-  sessions      Session[]
+  id              String            @id @default(cuid())
+  name            String?
+  email           String            @unique
+  emailVerified   Boolean           @default(false)
+  image           String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  bio             String?
+  username        String?           @unique
+  accounts        Account[]
+  sessions        Session[]
+  workoutRoutines WorkoutRoutine[]
+  workoutLogs     WorkoutLog[]
+  createdExercises Exercise[]      @relation("CreatedExercises")
 }
 
 model Account {
@@ -38,7 +47,7 @@ model Account {
 
 model Session {
   id        String   @id @default(cuid())
-  token     String   @unique  // ← Changed from sessionToken to token
+  token     String   @unique
   userId    String
   expiresAt DateTime
   ipAddress String?
@@ -57,4 +66,113 @@ model Verification {
   updatedAt  DateTime @updatedAt
 
   @@unique([identifier, value])
+}
+
+// ============================================================================
+// WORKOUT APP MODELS
+// ============================================================================
+
+model Exercise {
+  id              String            @id @default(cuid())
+  name            String            @unique
+  category        String
+  muscleGroups    String[]
+  equipmentNeeded String?
+  instructions    String?
+  videoUrl        String?
+  demoGifUrl      String?
+  isPublic        Boolean           @default(true)
+  createdBy       String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  creator         User?             @relation("CreatedExercises", fields: [createdBy], references: [id], onDelete: SetNull)
+  workoutExercises WorkoutExercise[]
+  setLogs         SetLog[]
+}
+
+model WorkoutRoutine {
+  id          String            @id @default(cuid())
+  name        String
+  description String?
+  isPublic    Boolean           @default(false)
+  createdBy   String
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  creator     User              @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+  exercises   WorkoutExercise[]
+  workoutLogs WorkoutLog[]
+}
+
+model WorkoutExercise {
+  id             String          @id @default(cuid())
+  routineId      String
+  exerciseId     String
+  orderIndex     Int
+  targetSets     Int
+  targetReps     Int?
+  targetDuration Int?
+  restPeriod     Int?
+  notes          String?
+  supersetGroup  Int?
+  routine        WorkoutRoutine  @relation(fields: [routineId], references: [id], onDelete: Cascade)
+  exercise       Exercise        @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+
+  @@index([routineId, orderIndex])
+}
+
+model WorkoutLog {
+  id            String          @id @default(cuid())
+  userId        String
+  routineId     String?
+  startTime     DateTime        @default(now())
+  endTime       DateTime?
+  totalDuration Int?
+  notes         String?
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  routine       WorkoutRoutine? @relation(fields: [routineId], references: [id], onDelete: SetNull)
+  setLogs       SetLog[]
+
+  @@index([userId, startTime])
+}
+
+model SetLog {
+  id         String      @id @default(cuid())
+  workoutId  String
+  exerciseId String
+  setNumber  Int
+  reps       Int?
+  weight     Float?
+  duration   Int?
+  completed  Boolean     @default(true)
+  notes      String?
+  timestamp  DateTime    @default(now())
+  workout    WorkoutLog  @relation(fields: [workoutId], references: [id], onDelete: Cascade)
+  exercise   Exercise    @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+
+  @@index([workoutId, exerciseId, setNumber])
+}
+
+model PersonalRecord {
+  id         String   @id @default(cuid())
+  userId     String
+  exerciseId String
+  weight     Float
+  reps       Int
+  date       DateTime @default(now())
+
+  @@unique([userId, exerciseId])
+  @@index([userId, date])
+}
+
+model PublicWorkout {
+  id        String   @id @default(cuid())
+  title     String
+  slug      String   @unique
+  duration  Int
+  imageKey  String
+  creator   String
+  summary   String
+  isPublic  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
