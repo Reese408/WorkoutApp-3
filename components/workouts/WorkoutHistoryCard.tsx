@@ -43,13 +43,19 @@ export default function WorkoutHistoryCard({ log, onRefresh }: WorkoutHistoryCar
 
   const isCompleted = !!log.endTime;
   const routineName = log.routine?.name || 'Quick Workout';
+  const routineDeleted = log.routineId && !log.routine;
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-200 dark:border-gray-700 hover:shadow-lg transition-shadow p-6">
       <div className="flex items-start justify-between mb-4">
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-2">
-            <h3 className="text-xl font-semibold text-gray-900 dark:text-white">{routineName}</h3>
+            <h3 className="text-xl font-semibold text-gray-900 dark:text-white">
+              {routineName}
+              {routineDeleted && (
+                <span className="text-sm text-gray-500 dark:text-gray-400 ml-2">(Deleted)</span>
+              )}
+            </h3>
             {isCompleted ? (
               <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-200 rounded">
                 <CheckCircle className="w-3 h-3" />
@@ -100,7 +106,7 @@ export default function WorkoutHistoryCard({ log, onRefresh }: WorkoutHistoryCar
       </div>
 
       <div className="flex gap-2">
-        {!isCompleted && log.routineId && (
+        {!isCompleted && log.routineId && !routineDeleted && (
           <Link
             href={`/routines/${log.routineId}/execute`}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 dark:bg-blue-500 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors text-sm"
@@ -109,8 +115,14 @@ export default function WorkoutHistoryCard({ log, onRefresh }: WorkoutHistoryCar
             Continue Workout
           </Link>
         )}
+        {!isCompleted && routineDeleted && (
+          <div className="flex items-center gap-2 px-4 py-2 bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 rounded-lg text-sm cursor-not-allowed">
+            <Play className="w-4 h-4" />
+            Routine Deleted
+          </div>
+        )}
         <Link
-          href={`/workouts/summary?session=${log.id}`}
+          href={`/workouts/summary?log=${log.id}`}
           className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm"
         >
           View Details

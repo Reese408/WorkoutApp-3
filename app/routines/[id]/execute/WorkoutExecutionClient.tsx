@@ -1,77 +1,46 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
-  CheckCircle,
-  XCircle,
-  ChevronRight,
+  CheckCircle2,
+  Trophy,
+  Clock,
+  Dumbbell,
+  TrendingUp,
+  Play,
+  Pause,
+  SkipForward,
   AlertCircle,
-  Loader2
+  Loader2,
+  Plus,
+  Minus
 } from 'lucide-react';
-import ExerciseDisplay from '@/components/workoutViewer/ExerciseDisplay';
-import SetLogger from '@/components/workoutViewer/SetLogger';
-import RestTimer from '@/components/workoutViewer/RestTimer';
-import WorkoutTimer from '@/components/workoutViewer/WorkoutTimer';
-import ExerciseTimer from '@/components/workoutViewer/ExerciseTimer';
-import { WorkoutExerciseWithDetails } from '@/models/WorkoutExercise';
-import { useStartWorkout, useLogSet, useCompleteWorkout } from '@/lib/queries/useWorkoutExecution';
+import { startWorkout, logSet, completeWorkout, getExercisePRs } from '@/app/actions/workouts';
+import type { WorkoutExerciseWithExercise } from '@/lib/types';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 
 interface CompletedSet {
-  exercise_id: string;
-  set_number: number;
-  superset_position: number;
+  exerciseId: string;
+  setNumber: number;
+  supersetPosition: number;
 }
 
-// Helper function to calculate smart rest time
-function calculateSmartRest(
-  exerciseMinutes: number,
-  sets: number,
-  isSuperset: boolean = false,
-  supersetExerciseCount: number = 1
-): number {
-  const avgWorkTimePerSet = 45;
-  const totalSeconds = exerciseMinutes * 60;
-  const exerciseCount = isSuperset ? supersetExerciseCount : 1;
-  const totalWorkTime = sets * exerciseCount * avgWorkTimePerSet;
-  const availableForRest = totalSeconds - totalWorkTime;
-  const restPeriods = sets - 1;
-  
-  if (restPeriods <= 0) return 60;
-  
-  const calculatedRest = Math.floor(availableForRest / restPeriods);
-  return Math.max(30, Math.min(300, calculatedRest));
-}
-
-// Helper to calculate total workout time
-function calculateTotalWorkoutTime(exercises: WorkoutExerciseWithDetails[]): number {
-  const supersetGroups = new Map<number, WorkoutExerciseWithDetails[]>();
-  const regularExercises: WorkoutExerciseWithDetails[] = [];
-  
-  exercises.forEach(ex => {
-    if (ex.is_superset && ex.superset_group !== undefined && ex.superset_group !== null) {
-      const group = supersetGroups.get(ex.superset_group) || [];
-      group.push(ex);
-      supersetGroups.set(ex.superset_group, group);
-    } else {
-      regularExercises.push(ex);
-    }
-  });
-  
-  const regularTime = regularExercises.reduce((sum, ex) => sum + (ex.time_minutes || 5), 0);
-  
-  let supersetTime = 0;
-  const processedGroups = new Set<number>();
-  
-  supersetGroups.forEach((group, groupNumber) => {
-    if (!processedGroups.has(groupNumber)) {
-      const groupTime = group.reduce((sum, ex) => sum + (ex.time_minutes || 5), 0);
-      supersetTime += groupTime;
-      processedGroups.add(groupNumber);
-    }
-  });
-  
-  return (regularTime + supersetTime) * 60; // Convert to seconds
+interface ExercisePR {
+  weight: number;
+  reps: number;
+  date: Date;
 }
 
 export default function WorkoutExecutionClient({
@@ -82,125 +51,156 @@ export default function WorkoutExecutionClient({
   workoutTitle: string;
 }) {
   const router = useRouter();
-
-  // TanStack Query mutations
-  const startWorkout = useStartWorkout();
-  const logSetMutation = useLogSet();
-  const completeWorkoutMutation = useCompleteWorkout();
+  const [, startTransition] = useTransition();
 
   // State
-  const [exercises, setExercises] = useState<WorkoutExerciseWithDetails[]>([]);
+  const [exercises, setExercises] = useState<WorkoutExerciseWithExercise[]>([]);
   const [workoutLogId, setWorkoutLogId] = useState<string | null>(null);
-  const [sessionId, setSessionId] = useState<string | null>(null);
   const [completedSets, setCompletedSets] = useState<CompletedSet[]>([]);
   const [currentExerciseIndex, setCurrentExerciseIndex] = useState(0);
   const [currentSetNumber, setCurrentSetNumber] = useState(1);
-  const [currentSupersetPosition, setCurrentSupersetPosition] = useState(1);
   const [isResting, setIsResting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isLoggingSet, setIsLoggingSet] = useState(false);
+
+  // PR tracking
+  const [exercisePRs, setExercisePRs] = useState<Record<string, ExercisePR | null>>({});
 
   // Timer state
-  const [workoutTimeRemaining, setWorkoutTimeRemaining] = useState(0);
-  const [workoutTimeTotal, setWorkoutTimeTotal] = useState(0);
-  const [exerciseTimeRemaining, setExerciseTimeRemaining] = useState(0);
-  const [exerciseTimeTotal, setExerciseTimeTotal] = useState(0);
+  const [workoutElapsedSeconds, setWorkoutElapsedSeconds] = useState(0);
+  const [restTimeRemaining, setRestTimeRemaining] = useState(0);
+  const [isRestPaused, setIsRestPaused] = useState(false);
+
+  // Set logging inputs
+  const [currentReps, setCurrentReps] = useState(0);
+  const [currentWeight, setCurrentWeight] = useState(0);
+  const [currentNotes, setCurrentNotes] = useState('');
+
+  // Dialogs
+  const [showQuitDialog, setShowQuitDialog] = useState(false);
+  const [isResuming, setIsResuming] = useState(false);
 
   // Load workout and start execution
   useEffect(() => {
     async function initWorkout() {
       try {
-        const data = await startWorkout.mutateAsync(workoutId);
+        setIsLoading(true);
+        const result = await startWorkout({ routineId: workoutId });
 
-        setWorkoutLogId(data.workoutLogId);
-        setSessionId(data.sessionId);
-        setExercises(data.exercises as any);
-
-        // Initialize workout timer
-        const totalTime = calculateTotalWorkoutTime(data.exercises as any);
-        setWorkoutTimeTotal(totalTime);
-        setWorkoutTimeRemaining(totalTime);
-
-        // Initialize exercise timer
-        if (data.exercises.length > 0) {
-          const firstExercise = data.exercises[0] as any;
-          const exerciseTime = (firstExercise.time_minutes || 5) * 60;
-          setExerciseTimeTotal(exerciseTime);
-          setExerciseTimeRemaining(exerciseTime);
+        if (!result.success || !result.data) {
+          throw new Error(result.error || 'Failed to start workout');
         }
+
+        setWorkoutLogId(result.data.id);
+        const workoutExercises = result.data.routine?.exercises || [];
+        setExercises(workoutExercises);
+
+        // Load PRs for all exercises
+        const exerciseIds = workoutExercises.map(ex => ex.exerciseId);
+        const prResult = await getExercisePRs(exerciseIds);
+        if (prResult.success && prResult.data) {
+          setExercisePRs(prResult.data);
+        }
+
+        // Check if resuming - find where to continue from
+        const existingSetLogs = result.data.setLogs || [];
+        if (existingSetLogs.length > 0) {
+          // User is resuming - figure out current exercise and set
+          setIsResuming(true);
+          const completedSetsList = existingSetLogs.map((setLog: any) => ({
+            exerciseId: setLog.exerciseId,
+            setNumber: setLog.setNumber,
+            supersetPosition: 1
+          }));
+          setCompletedSets(completedSetsList);
+
+          // Find the last exercise worked on
+          const lastSet = existingSetLogs[existingSetLogs.length - 1];
+          const lastExerciseIndex = workoutExercises.findIndex(
+            (ex: any) => ex.exerciseId === lastSet.exerciseId
+          );
+
+          if (lastExerciseIndex !== -1) {
+            setCurrentExerciseIndex(lastExerciseIndex);
+
+            // Find how many sets completed for this exercise
+            const setsForExercise = existingSetLogs.filter(
+              (log: any) => log.exerciseId === lastSet.exerciseId
+            );
+            const nextSet = setsForExercise.length + 1;
+            setCurrentSetNumber(nextSet);
+
+            // If all sets done, move to next exercise
+            if (nextSet > workoutExercises[lastExerciseIndex].targetSets) {
+              const nextExerciseIndex = lastExerciseIndex + 1;
+              if (nextExerciseIndex < workoutExercises.length) {
+                setCurrentExerciseIndex(nextExerciseIndex);
+                setCurrentSetNumber(1);
+                setCurrentReps(workoutExercises[nextExerciseIndex].targetReps || 10);
+              }
+            } else {
+              setCurrentReps(workoutExercises[lastExerciseIndex].targetReps || 10);
+            }
+          }
+        } else {
+          // Brand new workout - start from beginning
+          if (workoutExercises.length > 0) {
+            setCurrentReps(workoutExercises[0].targetReps || 10);
+          }
+        }
+
+        setIsLoading(false);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load workout');
+        setIsLoading(false);
       }
     }
 
     initWorkout();
   }, [workoutId]);
 
-  // Workout timer countdown
+  // Workout timer
   useEffect(() => {
-    if (startWorkout.isPending || workoutTimeRemaining <= 0) return;
+    if (isLoading) return;
 
     const interval = setInterval(() => {
-      setWorkoutTimeRemaining(prev => Math.max(0, prev - 1));
+      setWorkoutElapsedSeconds(prev => prev + 1);
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [startWorkout.isPending, workoutTimeRemaining]);
+  }, [isLoading]);
 
-  // Exercise timer countdown (only when not resting)
+  // Rest timer
   useEffect(() => {
-    if (startWorkout.isPending || isResting || exerciseTimeRemaining <= 0) return;
+    if (!isResting || isRestPaused || restTimeRemaining <= 0) return;
 
     const interval = setInterval(() => {
-      setExerciseTimeRemaining(prev => Math.max(0, prev - 1));
+      setRestTimeRemaining(prev => {
+        if (prev <= 1) {
+          handleRestComplete();
+          return 0;
+        }
+        return prev - 1;
+      });
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [startWorkout.isPending, isResting, exerciseTimeRemaining]);
+  }, [isResting, isRestPaused, restTimeRemaining]);
 
-  // Reset exercise timer when moving to new exercise
-  const resetExerciseTimer = useCallback((exerciseIndex: number) => {
-    if (exercises.length === 0 || exerciseIndex >= exercises.length) return;
-    
-    const exercise = exercises[exerciseIndex];
-    
-    // For supersets, combine time from all exercises in the group
-    if (exercise.is_superset && exercise.superset_group !== null) {
-      const supersetExercises = exercises.filter(
-        ex => ex.superset_group === exercise.superset_group
-      );
-      const totalTime = supersetExercises.reduce(
-        (sum, ex) => sum + (ex.time_minutes || 5),
-        0
-      ) * 60;
-      setExerciseTimeTotal(totalTime);
-      setExerciseTimeRemaining(totalTime);
-    } else {
-      const time = (exercise.time_minutes || 5) * 60;
-      setExerciseTimeTotal(time);
-      setExerciseTimeRemaining(time);
-    }
-  }, [exercises]);
-
-  // Get current exercise and superset info
   const getCurrentExerciseInfo = () => {
     if (exercises.length === 0) return null;
-
     const currentExercise = exercises[currentExerciseIndex];
-    
-    if (currentExercise.is_superset && currentExercise.superset_group !== null) {
+
+    if (currentExercise.supersetGroup !== null && currentExercise.supersetGroup !== undefined) {
       const supersetExercises = exercises.filter(
-        ex => ex.superset_group === currentExercise.superset_group
+        ex => ex.supersetGroup === currentExercise.supersetGroup
       );
-      
-      const positionInSuperset = supersetExercises.findIndex(
-        ex => ex.id === currentExercise.id
-      ) + 1;
 
       return {
         exercise: currentExercise,
         isSuperset: true,
         supersetExercises,
-        supersetPosition: positionInSuperset,
         supersetTotal: supersetExercises.length
       };
     }
@@ -209,7 +209,6 @@ export default function WorkoutExecutionClient({
       exercise: currentExercise,
       isSuperset: false,
       supersetExercises: [currentExercise],
-      supersetPosition: 1,
       supersetTotal: 1
     };
   };
@@ -220,177 +219,152 @@ export default function WorkoutExecutionClient({
 
     return completedSets.some(
       set =>
-        set.exercise_id === info.exercise.exercise_id &&
-        set.set_number === currentSetNumber &&
-        set.superset_position === currentSupersetPosition
+        set.exerciseId === info.exercise.exerciseId &&
+        set.setNumber === currentSetNumber
     );
   };
 
-  const handleLogSet = async (
-    reps: number,
-    weight: number | null,
-    rpe: number | null,
-    notes: string
-  ) => {
-    if (!workoutLogId) return;
+  const handleLogSet = async () => {
+    if (!workoutLogId || currentReps === 0) return;
 
     const info = getCurrentExerciseInfo();
     if (!info) return;
 
     try {
-      await logSetMutation.mutateAsync({
-        workoutLogId,
-        exerciseId: info.exercise.exercise_id,
+      setIsLoggingSet(true);
+      const result = await logSet(workoutLogId, {
+        exerciseId: info.exercise.exerciseId,
         setNumber: currentSetNumber,
-        reps,
-        weight: weight || undefined,
-        notes: notes || undefined,
+        reps: currentReps,
+        weight: currentWeight > 0 ? currentWeight : undefined,
+        notes: currentNotes || undefined,
+        completed: true,
       });
+
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to log set');
+      }
 
       setCompletedSets(prev => [
         ...prev,
         {
-          exercise_id: info.exercise.exercise_id,
-          set_number: currentSetNumber,
-          superset_position: currentSupersetPosition
+          exerciseId: info.exercise.exerciseId,
+          setNumber: currentSetNumber,
+          supersetPosition: 1
         }
       ]);
 
-      moveToNext();
+      // Clear notes after logging
+      setCurrentNotes('');
+
+      // Move to next
+      if (currentSetNumber < info.exercise.targetSets) {
+        // Start rest
+        const restSeconds = info.exercise.restPeriod || 90;
+        setRestTimeRemaining(restSeconds);
+        setIsResting(true);
+        setCurrentSetNumber(prev => prev + 1);
+      } else {
+        // Move to next exercise
+        moveToNextExercise();
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to log set');
-    }
-  };
-
-  const moveToNext = () => {
-    const info = getCurrentExerciseInfo();
-    if (!info) return;
-
-    // If in superset and not last exercise, move to next exercise in group
-    if (info.isSuperset && currentSupersetPosition < info.supersetTotal) {
-      setCurrentSupersetPosition(prev => prev + 1);
-      setCurrentExerciseIndex(prev => prev + 1);
-      return;
-    }
-
-    // If more sets remaining, start rest period
-    if (currentSetNumber < info.exercise.target_sets) {
-      setIsResting(true);
-    } else {
-      // Move to next exercise
-      moveToNextExercise();
+    } finally {
+      setIsLoggingSet(false);
     }
   };
 
   const handleRestComplete = () => {
     setIsResting(false);
-    
-    const info = getCurrentExerciseInfo();
-    if (!info) return;
+    setRestTimeRemaining(0);
+    setIsRestPaused(false);
+  };
 
-    setCurrentSetNumber(prev => prev + 1);
-    
-    // Reset to first exercise in superset if applicable
-    if (info.isSuperset) {
-      const firstSupersetIndex = exercises.findIndex(
-        ex => ex.superset_group === info.exercise.superset_group
-      );
-      setCurrentExerciseIndex(firstSupersetIndex);
-      setCurrentSupersetPosition(1);
-    }
+  const handleSkipRest = () => {
+    handleRestComplete();
   };
 
   const moveToNextExercise = () => {
-    const info = getCurrentExerciseInfo();
-    if (!info) return;
-
-    let nextIndex = currentExerciseIndex + 1;
-
-    // Skip to end of superset group if in one
-    if (info.isSuperset) {
-      const lastSupersetIndex = exercises.findIndex(
-        (ex, idx) => 
-          idx > currentExerciseIndex && 
-          ex.superset_group !== info.exercise.superset_group
-      );
-      nextIndex = lastSupersetIndex !== -1 ? lastSupersetIndex : exercises.length;
-    }
+    const nextIndex = currentExerciseIndex + 1;
 
     if (nextIndex >= exercises.length) {
-      completeWorkout();
+      handleCompleteWorkout();
     } else {
       setCurrentExerciseIndex(nextIndex);
       setCurrentSetNumber(1);
-      setCurrentSupersetPosition(1);
-      resetExerciseTimer(nextIndex);
+      setCurrentReps(exercises[nextIndex].targetReps || 10);
+      setCurrentWeight(0);
     }
   };
 
-  const completeWorkout = async () => {
-    if (!workoutLogId || !sessionId) return;
+  const handleCompleteWorkout = async () => {
+    if (!workoutLogId) return;
 
     try {
-      await completeWorkoutMutation.mutateAsync({
-        workoutLogId,
-        sessionId,
-      });
+      startTransition(async () => {
+        const result = await completeWorkout({
+          workoutId: workoutLogId,
+        });
 
-      router.push(`/routines/${workoutId}/summary?log=${workoutLogId}`);
+        if (!result.success) {
+          throw new Error(result.error || 'Failed to complete workout');
+        }
+
+        router.push(`/routines/${workoutId}/summary?log=${workoutLogId}`);
+      });
     } catch (err) {
       setError('Failed to complete workout');
     }
   };
 
   const calculateProgress = () => {
-    const totalSets = exercises.reduce((sum, ex) => sum + ex.target_sets, 0);
+    const totalSets = exercises.reduce((sum, ex) => sum + ex.targetSets, 0);
     const completed = completedSets.length;
-    return Math.round((completed / totalSets) * 100);
+    return totalSets > 0 ? Math.round((completed / totalSets) * 100) : 0;
   };
 
-  // Calculate smart rest time
-  const getSmartRestTime = (): number => {
-    const info = getCurrentExerciseInfo();
-    if (!info) return 60;
-
-    // If manually set, use that
-    if (info.exercise.rest_seconds) {
-      return info.exercise.rest_seconds;
-    }
-
-    // Otherwise calculate smart rest
-    const exerciseMinutes = info.exercise.time_minutes || 5;
-    return calculateSmartRest(
-      exerciseMinutes,
-      info.exercise.target_sets,
-      info.isSuperset,
-      info.supersetTotal
-    );
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  if (startWorkout.isPending) {
+  if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      <div className="min-h-screen bg-gradient-to-b from-blue-50 to-white dark:from-gray-900 dark:to-gray-800 flex items-center justify-center">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="flex flex-col items-center gap-4"
+        >
+          <Loader2 className="w-12 h-12 animate-spin text-blue-600" />
+          <p className="text-lg text-gray-600 dark:text-gray-300">Loading workout...</p>
+        </motion.div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <div className="bg-white rounded-xl shadow-lg p-6 max-w-md">
-          <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-          <h2 className="text-xl font-semibold text-gray-900 text-center mb-2">
+      <div className="min-h-screen bg-gradient-to-b from-red-50 to-white dark:from-gray-900 dark:to-gray-800 flex items-center justify-center p-4">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-8 max-w-md w-full"
+        >
+          <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white text-center mb-2">
             Error
           </h2>
-          <p className="text-gray-600 text-center mb-4">{error}</p>
-          <button
+          <p className="text-gray-600 dark:text-gray-300 text-center mb-6">{error}</p>
+          <Button
             onClick={() => router.push('/routines')}
-            className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700"
+            className="w-full"
           >
             Back to Routines
-          </button>
-        </div>
+          </Button>
+        </motion.div>
       </div>
     );
   }
@@ -399,131 +373,354 @@ export default function WorkoutExecutionClient({
   if (!info) return null;
 
   const progress = calculateProgress();
-  const smartRestTime = getSmartRestTime();
+  const currentPR = exercisePRs[info.exercise.exerciseId];
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gradient-to-b from-blue-50 via-white to-purple-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900">
       {/* Header */}
-      <div className="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-10">
-        <div className="max-w-4xl mx-auto px-4 py-4">
-          <div className="flex items-center justify-between mb-3">
-            <h1 className="text-xl font-bold text-gray-900">{workoutTitle}</h1>
-            <button
-              onClick={() => {
-                if (confirm('Are you sure you want to quit? Progress will be saved.')) {
-                  router.push('/routines');
-                }
-              }}
-              className="text-gray-600 hover:text-gray-900"
+      <motion.div
+        initial={{ y: -100 }}
+        animate={{ y: 0 }}
+        className="bg-white/80 dark:bg-gray-900/80 backdrop-blur-lg shadow-lg border-b border-gray-200 dark:border-gray-700 sticky top-0 z-10"
+      >
+        <div className="max-w-4xl mx-auto px-4 py-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{workoutTitle}</h1>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                Exercise {currentExerciseIndex + 1} of {exercises.length}
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowQuitDialog(true)}
             >
-              <XCircle size={24} />
-            </button>
+              Save & Exit
+            </Button>
           </div>
-          
+
           {/* Progress Bar */}
-          <div className="flex items-center gap-3 mb-3">
-            <div className="flex-1 bg-gray-200 rounded-full h-2 overflow-hidden">
-              <div
-                className="bg-gradient-to-r from-blue-500 to-purple-600 h-full transition-all duration-500"
-                style={{ width: `${progress}%` }}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-gray-600 dark:text-gray-400">Progress</span>
+              <span className="font-semibold text-gray-900 dark:text-white">{progress}%</span>
+            </div>
+            <div className="relative h-3 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+              <motion.div
+                initial={{ width: 0 }}
+                animate={{ width: `${progress}%` }}
+                transition={{ duration: 0.5, ease: "easeOut" }}
+                className="absolute inset-y-0 left-0 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full"
               />
             </div>
-            <span className="text-sm font-semibold text-gray-700">{progress}%</span>
           </div>
 
           {/* Workout Timer */}
-          <WorkoutTimer 
-            timeRemaining={workoutTimeRemaining}
-            totalTime={workoutTimeTotal}
-          />
+          <div className="mt-4 flex items-center justify-center gap-2 text-gray-700 dark:text-gray-300">
+            <Clock className="w-5 h-5" />
+            <span className="text-lg font-semibold">{formatTime(workoutElapsedSeconds)}</span>
+          </div>
         </div>
-      </div>
+      </motion.div>
 
       {/* Main Content */}
-      <div className="max-w-4xl mx-auto px-4 py-6 space-y-4">
-        {/* Exercise Timer - Only show when not resting */}
-        {!isResting && (
-          <ExerciseTimer
-            timeRemaining={exerciseTimeRemaining}
-            totalTime={exerciseTimeTotal}
-            exerciseName={info.exercise.exercise_name}
-            currentSet={currentSetNumber}
-            totalSets={info.exercise.target_sets}
-            isPaused={false}
-          />
-        )}
-
-        {isResting ? (
-          <>
-            {/* Exercise Timer (Paused) */}
-            <ExerciseTimer
-              timeRemaining={exerciseTimeRemaining}
-              totalTime={exerciseTimeTotal}
-              exerciseName={info.exercise.exercise_name}
-              currentSet={currentSetNumber}
-              totalSets={info.exercise.target_sets}
-              isPaused={true}
-            />
-            
-            {/* Rest Timer */}
-            <RestTimer
-              duration={smartRestTime}
-              onComplete={handleRestComplete}
-              onSkip={handleRestComplete}
-            />
-          </>
-        ) : (
-          <>
-            <ExerciseDisplay
-              exerciseName={info.exercise.exercise_name}
-              description={null}
-              instructions={info.exercise.exercise_instructions}
-              videoUrl={info.exercise.exercise_demo_video_url}
-              muscleGroup={info.exercise.exercise_muscle_groups?.join(', ') || null}
-              equipmentNeeded={info.exercise.exercise_equipment_needed}
-              targetSets={info.exercise.target_sets}
-              targetReps={info.exercise.target_reps}
-              targetWeight={null}
-              currentSet={currentSetNumber}
-              isSuperset={info.isSuperset}
-              supersetPosition={info.supersetPosition}
-              supersetTotal={info.supersetTotal}
-            />
-
-            {!isCurrentSetCompleted() && (
-              <SetLogger
-                targetReps={info.exercise.target_reps}
-                targetWeight={null}
-                onLogSet={handleLogSet}
-                isLoading={logSetMutation.isPending}
-              />
-            )}
-
-            {isCurrentSetCompleted() && (
-              <div className="bg-green-50 border border-green-200 rounded-xl p-6 text-center">
-                <CheckCircle className="w-12 h-12 text-green-600 mx-auto mb-3" />
-                <p className="text-lg font-semibold text-green-900 mb-1">
-                  Set Complete!
-                </p>
-                <p className="text-sm text-green-700 mb-4">
-                  {info.isSuperset && currentSupersetPosition < info.supersetTotal
-                    ? `Moving to next exercise in superset...`
-                    : currentSetNumber < info.exercise.target_sets
-                    ? `Rest for ${Math.floor(smartRestTime / 60)}:${(smartRestTime % 60).toString().padStart(2, '0')}`
-                    : 'Moving to next exercise...'}
-                </p>
-                <button
-                  onClick={moveToNext}
-                  className="inline-flex items-center gap-2 bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 font-medium"
-                >
-                  <span>Continue</span>
-                  <ChevronRight size={20} />
-                </button>
+      <div className="max-w-4xl mx-auto px-4 py-8">
+        {/* Resume Banner */}
+        {isResuming && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-6 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-2xl p-4 shadow-lg"
+          >
+            <div className="flex items-center gap-3">
+              <Play className="w-6 h-6" />
+              <div>
+                <h3 className="font-semibold">Resuming Workout</h3>
+                <p className="text-sm text-blue-100">Picking up where you left off!</p>
               </div>
-            )}
-          </>
+            </div>
+          </motion.div>
         )}
+
+        <AnimatePresence mode="wait">
+          {isResting ? (
+            <motion.div
+              key="rest"
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="space-y-6"
+            >
+              {/* Rest Timer Card */}
+              <div className="bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 rounded-3xl p-8 shadow-xl border border-green-200 dark:border-green-800">
+                <div className="text-center">
+                  <div className="inline-flex items-center justify-center w-16 h-16 bg-green-500 rounded-full mb-4">
+                    <Pause className="w-8 h-8 text-white" />
+                  </div>
+                  <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Rest Time</h3>
+                  <p className="text-gray-600 dark:text-gray-300 mb-6">
+                    Get ready for set {currentSetNumber}
+                  </p>
+
+                  <motion.div
+                    key={restTimeRemaining}
+                    initial={{ scale: 1.1 }}
+                    animate={{ scale: 1 }}
+                    className="text-7xl font-bold text-green-600 dark:text-green-400 mb-8"
+                  >
+                    {formatTime(restTimeRemaining)}
+                  </motion.div>
+
+                  <div className="flex gap-3 justify-center">
+                    <Button
+                      variant="outline"
+                      onClick={() => setIsRestPaused(!isRestPaused)}
+                      className="gap-2"
+                    >
+                      {isRestPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
+                      {isRestPaused ? 'Resume' : 'Pause'}
+                    </Button>
+                    <Button
+                      onClick={handleSkipRest}
+                      className="gap-2"
+                    >
+                      <SkipForward className="w-4 h-4" />
+                      Skip Rest
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Next Exercise Preview */}
+              <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-lg">
+                <h4 className="text-sm font-semibold text-gray-500 dark:text-gray-400 mb-2">NEXT</h4>
+                <p className="text-xl font-bold text-gray-900 dark:text-white">
+                  {info.exercise.exercise.name} - Set {currentSetNumber}
+                </p>
+              </div>
+            </motion.div>
+          ) : (
+            <motion.div
+              key="exercise"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="space-y-6"
+            >
+              {/* Exercise Card */}
+              <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl overflow-hidden">
+                {/* Exercise Header */}
+                <div className="bg-gradient-to-r from-blue-600 to-purple-600 p-6 text-white">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <h2 className="text-3xl font-bold mb-2">{info.exercise.exercise.name}</h2>
+                      <p className="text-blue-100">
+                        {info.exercise.exercise.muscleGroups?.join(', ')}
+                      </p>
+                    </div>
+                    {currentPR && (
+                      <motion.div
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1 }}
+                        className="bg-white/20 backdrop-blur-sm rounded-xl p-3 text-center"
+                      >
+                        <Trophy className="w-6 h-6 mx-auto mb-1" />
+                        <div className="text-xs font-semibold">PR</div>
+                        <div className="text-sm font-bold">{currentPR.weight}lb × {currentPR.reps}</div>
+                      </motion.div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Set Progress */}
+                <div className="p-6 border-b border-gray-200 dark:border-gray-700">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-sm font-semibold text-gray-600 dark:text-gray-400">
+                      SET PROGRESS
+                    </span>
+                    <span className="text-lg font-bold text-gray-900 dark:text-white">
+                      {currentSetNumber} / {info.exercise.targetSets}
+                    </span>
+                  </div>
+                  <div className="flex gap-2">
+                    {Array.from({ length: info.exercise.targetSets }).map((_, idx) => (
+                      <motion.div
+                        key={idx}
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1 }}
+                        transition={{ delay: idx * 0.05 }}
+                        className={`flex-1 h-2 rounded-full ${
+                          idx < currentSetNumber - 1
+                            ? 'bg-green-500'
+                            : idx === currentSetNumber - 1
+                            ? 'bg-blue-500'
+                            : 'bg-gray-200 dark:bg-gray-700'
+                        }`}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                {/* Input Section */}
+                {!isCurrentSetCompleted() && (
+                  <div className="p-6 space-y-6">
+                    {/* Reps Input */}
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
+                        REPS
+                        {info.exercise.targetReps && (
+                          <span className="ml-2 text-gray-500 dark:text-gray-400 font-normal">
+                            (Target: {info.exercise.targetReps})
+                          </span>
+                        )}
+                      </label>
+                      <div className="flex items-center gap-3">
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          onClick={() => setCurrentReps(Math.max(0, currentReps - 1))}
+                          disabled={currentReps === 0}
+                        >
+                          <Minus className="w-4 h-4" />
+                        </Button>
+                        <input
+                          type="number"
+                          value={currentReps}
+                          onChange={(e) => setCurrentReps(Math.max(0, parseInt(e.target.value) || 0))}
+                          className="flex-1 bg-gray-50 dark:bg-gray-900 rounded-xl border-2 border-gray-200 dark:border-gray-700 p-4 text-center text-4xl font-bold text-gray-900 dark:text-white outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all"
+                          min="0"
+                        />
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          onClick={() => setCurrentReps(currentReps + 1)}
+                        >
+                          <Plus className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* Weight Input */}
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
+                        WEIGHT (lbs) - Optional
+                      </label>
+                      <div className="flex items-center gap-3">
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          onClick={() => setCurrentWeight(Math.max(0, currentWeight - 5))}
+                          disabled={currentWeight === 0}
+                        >
+                          <Minus className="w-4 h-4" />
+                        </Button>
+                        <input
+                          type="number"
+                          value={currentWeight}
+                          onChange={(e) => setCurrentWeight(Math.max(0, parseFloat(e.target.value) || 0))}
+                          className="flex-1 bg-gray-50 dark:bg-gray-900 rounded-xl border-2 border-gray-200 dark:border-gray-700 p-4 text-center text-4xl font-bold text-gray-900 dark:text-white outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all"
+                          min="0"
+                          step="2.5"
+                        />
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          onClick={() => setCurrentWeight(currentWeight + 5)}
+                        >
+                          <Plus className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* Notes */}
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                        NOTES (Optional)
+                      </label>
+                      <textarea
+                        value={currentNotes}
+                        onChange={(e) => setCurrentNotes(e.target.value)}
+                        placeholder="How did it feel? Any pain?"
+                        className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all resize-none"
+                        rows={3}
+                      />
+                    </div>
+
+                    {/* Complete Set Button */}
+                    <Button
+                      onClick={handleLogSet}
+                      disabled={isLoggingSet || currentReps === 0}
+                      className="w-full h-14 text-lg font-semibold gap-3"
+                      size="lg"
+                    >
+                      {isLoggingSet ? (
+                        <>
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                          Logging...
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="w-5 h-5" />
+                          Complete Set
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                )}
+
+                {isCurrentSetCompleted() && (
+                  <div className="p-6">
+                    <motion.div
+                      initial={{ scale: 0.8, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      className="bg-green-50 dark:bg-green-900/20 border-2 border-green-500 dark:border-green-600 rounded-2xl p-6 text-center"
+                    >
+                      <CheckCircle2 className="w-16 h-16 text-green-600 dark:text-green-400 mx-auto mb-3" />
+                      <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+                        Set Complete!
+                      </h3>
+                      <p className="text-gray-600 dark:text-gray-300">
+                        Great work! Get ready for the next one.
+                      </p>
+                    </motion.div>
+                  </div>
+                )}
+
+                {/* Exercise Instructions */}
+                {info.exercise.exercise.instructions && (
+                  <div className="p-6 bg-gray-50 dark:bg-gray-900/50">
+                    <h4 className="text-sm font-semibold text-gray-500 dark:text-gray-400 mb-2">
+                      INSTRUCTIONS
+                    </h4>
+                    <p className="text-gray-700 dark:text-gray-300 leading-relaxed">
+                      {info.exercise.exercise.instructions}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
+
+      {/* Quit Dialog */}
+      <AlertDialog open={showQuitDialog} onOpenChange={setShowQuitDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Save & Exit?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Your progress will be saved. You can continue this workout later from the workout history page.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Continue Workout</AlertDialogCancel>
+            <AlertDialogAction onClick={() => router.push('/workouts/history')}>
+              Save & Exit
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

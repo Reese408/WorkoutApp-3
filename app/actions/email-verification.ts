@@ -8,24 +8,7 @@ type ActionState = {
   success?: boolean;
 } | null;
 
-/**
- * ==============================================================================
- * RESEND VERIFICATION EMAIL ACTION - WITH ZOD VALIDATION
- * ==============================================================================
- *
- * SECURITY IMPROVEMENTS:
- * 1. ✅ Email validation (prevents injection attacks)
- * 2. ✅ Type safety (no unsafe "as string" casts)
- * 3. ✅ Email normalization (finds account even if caps differ)
- *
- * VULNERABILITIES FIXED:
- * ❌ BEFORE: formData.get("email") as string
- *    - Could be null → crashes
- *    - Could be malformed → database error
- *    - Could be "  TEST@EXAMPLE.COM  " → no match found
- *
- * ✅ AFTER: Email is validated, normalized, and guaranteed valid
- */
+
 export async function resendVerificationEmail(
   _prevState: ActionState,
   formData: FormData

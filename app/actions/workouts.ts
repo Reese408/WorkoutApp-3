@@ -24,7 +24,7 @@ import {
 const prisma = new PrismaClient();
 
 /**
- * Start a new workout session
+ * Start a new workout session (or resume existing in-progress one)
  */
 export async function startWorkout(data: StartWorkoutFormData): Promise<ActionResponse<WorkoutLogWithDetails>> {
   try {
@@ -41,6 +41,49 @@ export async function startWorkout(data: StartWorkoutFormData): Promise<ActionRe
 
     const validated = startWorkoutSchema.parse(data);
 
+    // Check for existing in-progress workout for this routine
+    const existingWorkout = await prisma.workoutLog.findFirst({
+      where: {
+        userId: session.user.id,
+        routineId: validated.routineId,
+        endTime: null, // In progress
+      },
+      include: {
+        routine: {
+          include: {
+            exercises: {
+              include: {
+                exercise: true,
+              },
+              orderBy: {
+                orderIndex: "asc",
+              },
+            },
+          },
+        },
+        setLogs: {
+          include: {
+            exercise: true,
+          },
+          orderBy: {
+            timestamp: "asc",
+          },
+        },
+      },
+      orderBy: {
+        startTime: "desc",
+      },
+    });
+
+    // If found, return the existing workout to resume
+    if (existingWorkout) {
+      return {
+        success: true,
+        data: existingWorkout,
+      };
+    }
+
+    // Otherwise create a new workout log
     const workoutLog = await prisma.workoutLog.create({
       data: {
         userId: session.user.id,
@@ -701,6 +744,57 @@ export async function getWorkoutSessionSummary(
     return {
       success: false,
       error: "Failed to get workout summary",
+    };
+  }
+}
+
+/**
+ * Get personal records for specific exercises (for workout execution)
+ */
+export async function getExercisePRs(exerciseIds: string[]): Promise<ActionResponse<Record<string, { weight: number; reps: number; date: Date } | null>>> {
+  try {
+    const session = await auth.api.getSession({
+      headers: await headers(),
+    });
+
+    if (!session) {
+      return {
+        success: false,
+        error: "You must be logged in to view personal records",
+      };
+    }
+
+    const records = await prisma.personalRecord.findMany({
+      where: {
+        userId: session.user.id,
+        exerciseId: {
+          in: exerciseIds,
+        },
+      },
+      select: {
+        exerciseId: true,
+        weight: true,
+        reps: true,
+        date: true,
+      },
+    });
+
+    // Convert array to map
+    const prMap: Record<string, { weight: number; reps: number; date: Date } | null> = {};
+    exerciseIds.forEach(id => {
+      const pr = records.find(r => r.exerciseId === id);
+      prMap[id] = pr || null;
+    });
+
+    return {
+      success: true,
+      data: prMap,
+    };
+  } catch (error) {
+    console.error("Failed to fetch exercise PRs:", error);
+    return {
+      success: false,
+      error: "Failed to fetch exercise PRs",
     };
   }
 }
