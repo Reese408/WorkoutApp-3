@@ -3,34 +3,18 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Trophy, TrendingUp, Dumbbell, Clock, ChevronRight } from 'lucide-react';
-
-interface SessionSummary {
-  session: {
-    id: number;
-    started_at: string;
-    completed_at: string;
-    total_volume: number;
-    total_sets_completed: number;
-    notes: string | null;
-  };
-  sets: Array<{
-    exercise_name: string;
-    set_number: number;
-    reps_completed: number;
-    weight_used: number | null;
-    rpe: number | null;
-  }>;
-  workout_name: string;
-  duration_minutes: number;
-}
+import { getWorkoutSessionSummary } from '@/app/actions/workouts';
+import type { WorkoutSessionSummary } from '@/lib/types';
+import { Button } from '../ui/button';
 
 export default function WorkoutSummaryPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const sessionId = searchParams.get('session');
 
-  const [summary, setSummary] = useState<SessionSummary | null>(null);
+  const [summary, setSummary] = useState<WorkoutSessionSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadSummary() {
@@ -40,13 +24,16 @@ export default function WorkoutSummaryPage() {
       }
 
       try {
-        const response = await fetch(`/api/workout-sessions/${sessionId}/summary`);
-        if (!response.ok) throw new Error('Failed to load summary');
-        
-        const data = await response.json();
-        setSummary(data);
-      } catch (error) {
-        console.error('Error loading summary:', error);
+        const response = await getWorkoutSessionSummary(sessionId);
+
+        if (!response.success || !response.data) {
+          throw new Error(response.error || 'Failed to load summary');
+        }
+
+        setSummary(response.data);
+      } catch (err: any) {
+        console.error('Error loading summary:', err);
+        setError(err.message || 'Failed to load workout summary');
       } finally {
         setIsLoading(false);
       }
@@ -57,107 +44,96 @@ export default function WorkoutSummaryPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 dark:border-blue-400"></div>
       </div>
     );
   }
 
-  if (!summary) {
+  if (error || !summary) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex items-center justify-center">
         <div className="text-center">
-          <p className="text-gray-600 mb-4">Workout summary not found</p>
-          <button
-            onClick={() => router.push('/workouts')}
-            className="text-blue-600 hover:text-blue-700 font-medium"
-          >
+          <p className="text-gray-600 dark:text-gray-400 mb-4">
+            {error || 'Workout summary not found'}
+          </p>
+          <Button onClick={() => router.push('/workouts')}>
             Back to Workouts
-          </button>
+          </Button>
         </div>
       </div>
     );
   }
 
-  const { session, sets, workout_name, duration_minutes } = summary;
-
-  // Group sets by exercise
-  const exerciseGroups = sets.reduce((acc, set) => {
-    if (!acc[set.exercise_name]) {
-      acc[set.exercise_name] = [];
-    }
-    acc[set.exercise_name].push(set);
-    return acc;
-  }, {} as Record<string, typeof sets>);
+  const workoutName = summary.workoutLog.routine?.name || 'Quick Workout';
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 dark:from-gray-950 dark:to-gray-900">
       {/* Celebration Header */}
-      <div className="bg-gradient-to-r from-green-500 to-emerald-600 text-white">
+      <div className="bg-gradient-to-r from-green-500 to-emerald-600 dark:from-green-600 dark:to-emerald-700 text-white">
         <div className="max-w-4xl mx-auto px-4 py-12 text-center">
           <Trophy className="w-20 h-20 mx-auto mb-4" />
           <h1 className="text-4xl font-bold mb-2">Workout Complete! 🎉</h1>
-          <p className="text-green-100 text-lg">{workout_name}</p>
+          <p className="text-green-100 dark:text-green-200 text-lg">{workoutName}</p>
         </div>
       </div>
 
       {/* Stats Grid */}
       <div className="max-w-4xl mx-auto px-4 -mt-8">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-          <div className="bg-white rounded-xl shadow-lg p-6 text-center">
-            <Dumbbell className="w-8 h-8 text-blue-600 mx-auto mb-2" />
-            <p className="text-sm text-gray-600 mb-1">Total Volume</p>
-            <p className="text-3xl font-bold text-gray-900">
-              {session.total_volume.toLocaleString()}
-              <span className="text-lg text-gray-500"> lbs</span>
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6 text-center border border-gray-200 dark:border-gray-700">
+            <Dumbbell className="w-8 h-8 text-blue-600 dark:text-blue-400 mx-auto mb-2" />
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Total Volume</p>
+            <p className="text-3xl font-bold text-gray-900 dark:text-gray-100">
+              {summary.totalWeight.toLocaleString()}
+              <span className="text-lg text-gray-500 dark:text-gray-400"> lbs</span>
             </p>
           </div>
 
-          <div className="bg-white rounded-xl shadow-lg p-6 text-center">
-            <TrendingUp className="w-8 h-8 text-purple-600 mx-auto mb-2" />
-            <p className="text-sm text-gray-600 mb-1">Sets Completed</p>
-            <p className="text-3xl font-bold text-gray-900">
-              {session.total_sets_completed}
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6 text-center border border-gray-200 dark:border-gray-700">
+            <TrendingUp className="w-8 h-8 text-purple-600 dark:text-purple-400 mx-auto mb-2" />
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Sets Completed</p>
+            <p className="text-3xl font-bold text-gray-900 dark:text-gray-100">
+              {summary.totalSets}
             </p>
           </div>
 
-          <div className="bg-white rounded-xl shadow-lg p-6 text-center">
-            <Clock className="w-8 h-8 text-green-600 mx-auto mb-2" />
-            <p className="text-sm text-gray-600 mb-1">Duration</p>
-            <p className="text-3xl font-bold text-gray-900">
-              {duration_minutes}
-              <span className="text-lg text-gray-500"> min</span>
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6 text-center border border-gray-200 dark:border-gray-700">
+            <Clock className="w-8 h-8 text-green-600 dark:text-green-400 mx-auto mb-2" />
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Duration</p>
+            <p className="text-3xl font-bold text-gray-900 dark:text-gray-100">
+              {summary.duration}
+              <span className="text-lg text-gray-500 dark:text-gray-400"> min</span>
             </p>
           </div>
         </div>
 
         {/* Exercise Breakdown */}
-        <div className="bg-white rounded-xl shadow-lg p-6 mb-8">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">Exercise Breakdown</h2>
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6 mb-8 border border-gray-200 dark:border-gray-700">
+          <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-4">Exercise Breakdown</h2>
           <div className="space-y-6">
-            {Object.entries(exerciseGroups).map(([exerciseName, exerciseSets]) => (
-              <div key={exerciseName} className="border-b border-gray-200 pb-4 last:border-0">
-                <h3 className="font-semibold text-gray-900 mb-3">{exerciseName}</h3>
+            {summary.exerciseSummaries.map((exerciseSummary) => (
+              <div key={exerciseSummary.exerciseId} className="border-b border-gray-200 dark:border-gray-700 pb-4 last:border-0">
+                <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-3">{exerciseSummary.exerciseName}</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                  {exerciseSets.map((set, idx) => (
-                    <div
-                      key={idx}
-                      className="bg-gray-50 rounded-lg p-3 border border-gray-200"
-                    >
-                      <p className="text-xs text-gray-500 mb-1">Set {set.set_number}</p>
-                      <p className="text-lg font-bold text-gray-900">
-                        {set.reps_completed} reps
-                        {set.weight_used && (
-                          <span className="text-sm text-gray-600 ml-1">
-                            @ {set.weight_used} lbs
-                          </span>
-                        )}
-                      </p>
-                      {set.rpe && (
-                        <p className="text-xs text-gray-500 mt-1">RPE: {set.rpe}/10</p>
-                      )}
-                    </div>
-                  ))}
+                  <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Total Sets</p>
+                    <p className="text-lg font-bold text-gray-900 dark:text-gray-100">
+                      {exerciseSummary.sets}
+                    </p>
+                  </div>
+                  <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Total Reps</p>
+                    <p className="text-lg font-bold text-gray-900 dark:text-gray-100">
+                      {exerciseSummary.totalReps}
+                    </p>
+                  </div>
+                  <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Max Weight</p>
+                    <p className="text-lg font-bold text-gray-900 dark:text-gray-100">
+                      {exerciseSummary.maxWeight} lbs
+                    </p>
+                  </div>
                 </div>
               </div>
             ))}
@@ -166,20 +142,23 @@ export default function WorkoutSummaryPage() {
 
         {/* Action Buttons */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pb-8">
-          <button
+          <Button
+            variant="outline"
+            size="lg"
             onClick={() => router.push('/workouts')}
-            className="flex items-center justify-center gap-2 bg-white text-gray-700 border-2 border-gray-300 py-4 rounded-xl font-semibold hover:bg-gray-50 transition-colors"
+            className="h-14"
           >
-            <span>View All Workouts</span>
-          </button>
-          
-          <button
+            View All Workouts
+          </Button>
+
+          <Button
+            size="lg"
             onClick={() => router.push('/dashboard')}
-            className="flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white py-4 rounded-xl font-semibold hover:from-blue-700 hover:to-purple-700 transition-all shadow-md"
+            className="h-14 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
           >
             <span>Back to Dashboard</span>
-            <ChevronRight size={20} />
-          </button>
+            <ChevronRight size={20} className="ml-2" />
+          </Button>
         </div>
       </div>
     </div>

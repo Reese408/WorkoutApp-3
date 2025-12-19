@@ -24,7 +24,7 @@ export default async function proxy(req: Request): Promise<Response | null> {
   }
 
   // Protected routes - require authentication
-  const protectedRoutes = ["/dashboard", "/home"];
+  const protectedRoutes = ["/dashboard", "/home", "/routines", "/exercises", "/workouts"];
 
   // Auth routes - redirect if already authenticated
   const authRoutes = ["/signin", "/signup"];

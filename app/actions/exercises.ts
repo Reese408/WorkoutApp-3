@@ -5,37 +5,22 @@ import { headers } from "next/headers";
 import { PrismaClient } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import {
+  type ActionResponse,
+  type ExerciseFormData,
+  type ExerciseWithCreator,
+  type ExerciseFilters,
+  exerciseSchema,
+} from "@/lib/types";
 
 const prisma = new PrismaClient();
-
-// Validation schema
-const exerciseSchema = z.object({
-  name: z.string().min(1, "Name is required"),
-  category: z.string().min(1, "Category is required"),
-  muscleGroups: z.array(z.string()).min(1, "At least one muscle group is required"),
-  equipmentNeeded: z.string().optional(),
-  instructions: z.string().optional(),
-  videoUrl: z.string().url("Invalid URL").optional().or(z.literal("")),
-  demoGifUrl: z.string().url("Invalid URL").optional().or(z.literal("")),
-  isPublic: z.boolean().default(true),
-});
-
-type ExerciseFormData = z.infer<typeof exerciseSchema>;
-
-type ActionResponse = {
-  success: boolean;
-  error?: string;
-  data?: any;
-};
 
 /**
  * Get all exercises (with optional filtering)
  */
-export async function getExercises(filters?: {
-  category?: string;
-  muscleGroup?: string;
-  createdByMe?: boolean;
-}): Promise<ActionResponse> {
+export async function getExercises(
+  filters?: ExerciseFilters
+): Promise<ActionResponse<ExerciseWithCreator[]>> {
   try {
     const session = await auth.api.getSession({
       headers: await headers(),
@@ -95,7 +80,7 @@ export async function getExercises(filters?: {
 /**
  * Get a single exercise by ID
  */
-export async function getExercise(id: string): Promise<ActionResponse> {
+export async function getExercise(id: string): Promise<ActionResponse<ExerciseWithCreator>> {
   try {
     const exercise = await prisma.exercise.findUnique({
       where: { id },

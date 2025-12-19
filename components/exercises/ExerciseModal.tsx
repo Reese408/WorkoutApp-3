@@ -1,9 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { X, Save, Trash2 } from 'lucide-react';
-import type { Exercise } from '@/models/Exercise';
-import { createExerciseAction, updateExerciseAction, deleteExerciseAction } from '@/lib/actions';
+import type { Exercise, ExerciseFormData } from '@/lib/types';
+import { createExercise, updateExercise, deleteExercise } from '@/app/actions/exercises';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 
 interface ExerciseModalProps {
   exercise: Exercise | null;
@@ -11,14 +14,19 @@ interface ExerciseModalProps {
 }
 
 export default function ExerciseModal({ exercise, onClose }: ExerciseModalProps) {
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<ExerciseFormData>({
     name: exercise?.name || '',
     category: exercise?.category || '',
-    muscle_groups: exercise?.muscle_groups?.join(', ') || '',
-    equipment_needed: exercise?.equipment_needed || '',
+    muscleGroups: exercise?.muscleGroups || [],
+    equipmentNeeded: exercise?.equipmentNeeded || '',
     instructions: exercise?.instructions || '',
-    demo_video_url: exercise?.demo_video_url || '',
+    videoUrl: exercise?.videoUrl || '',
+    demoGifUrl: exercise?.demoGifUrl || '',
+    isPublic: exercise?.isPublic ?? true,
   });
+  const [muscleGroupsInput, setMuscleGroupsInput] = useState(
+    exercise?.muscleGroups?.join(', ') || ''
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -30,16 +38,22 @@ export default function ExerciseModal({ exercise, onClose }: ExerciseModalProps)
     setError('');
 
     try {
-      const formDataObj = new FormData();
-      Object.entries(formData).forEach(([key, value]) => {
-        formDataObj.append(key, value);
-      });
+      // Parse muscle groups from comma-separated string
+      const muscleGroups = muscleGroupsInput
+        .split(',')
+        .map((mg) => mg.trim())
+        .filter((mg) => mg.length > 0);
+
+      const exerciseData: ExerciseFormData = {
+        ...formData,
+        muscleGroups,
+      };
 
       let result;
       if (isEditMode && exercise) {
-        result = await updateExerciseAction(exercise.id, formDataObj);
+        result = await updateExercise(exercise.id, exerciseData);
       } else {
-        result = await createExerciseAction(formDataObj);
+        result = await createExercise(exerciseData);
       }
 
       if (result.success) {
@@ -59,7 +73,7 @@ export default function ExerciseModal({ exercise, onClose }: ExerciseModalProps)
 
     setLoading(true);
     try {
-      const result = await deleteExerciseAction(exercise.id);
+      const result = await deleteExercise(exercise.id);
       if (result.success) {
         onClose();
       } else {
@@ -73,16 +87,16 @@ export default function ExerciseModal({ exercise, onClose }: ExerciseModalProps)
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50 p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto border border-gray-200 dark:border-gray-800">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b">
-          <h2 className="text-2xl font-bold">
+        <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-800">
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
             {isEditMode ? 'Edit Exercise' : 'Create Exercise'}
           </h2>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
+            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
           >
             <X className="w-6 h-6" />
           </button>
@@ -91,33 +105,30 @@ export default function ExerciseModal({ exercise, onClose }: ExerciseModalProps)
         {/* Form */}
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 px-4 py-3 rounded">
               {error}
             </div>
           )}
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Exercise Name *
-            </label>
-            <input
+            <Label htmlFor="name">Exercise Name *</Label>
+            <Input
+              id="name"
               type="text"
               required
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               placeholder="e.g., Barbell Bench Press"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Category
-            </label>
+            <Label htmlFor="category">Category</Label>
             <select
+              id="category"
               value={formData.category}
               onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             >
               <option value="">Select category</option>
               <option value="strength">Strength</option>
@@ -129,89 +140,82 @@ export default function ExerciseModal({ exercise, onClose }: ExerciseModalProps)
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Muscle Groups (comma-separated)
-            </label>
-            <input
+            <Label htmlFor="muscleGroups">Muscle Groups (comma-separated)</Label>
+            <Input
+              id="muscleGroups"
               type="text"
-              value={formData.muscle_groups}
-              onChange={(e) => setFormData({ ...formData, muscle_groups: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              value={muscleGroupsInput}
+              onChange={(e) => setMuscleGroupsInput(e.target.value)}
               placeholder="e.g., chest, triceps, shoulders"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Equipment Needed
-            </label>
-            <input
+            <Label htmlFor="equipment">Equipment Needed</Label>
+            <Input
+              id="equipment"
               type="text"
-              value={formData.equipment_needed}
-              onChange={(e) => setFormData({ ...formData, equipment_needed: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              value={formData.equipmentNeeded || ''}
+              onChange={(e) => setFormData({ ...formData, equipmentNeeded: e.target.value })}
               placeholder="e.g., Barbell, Bench"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Instructions
-            </label>
+            <Label htmlFor="instructions">Instructions</Label>
             <textarea
-              value={formData.instructions}
+              id="instructions"
+              value={formData.instructions || ''}
               onChange={(e) => setFormData({ ...formData, instructions: e.target.value })}
               rows={4}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               placeholder="Describe how to perform this exercise..."
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Demo Video URL
-            </label>
-            <input
+            <Label htmlFor="videoUrl">Demo Video URL</Label>
+            <Input
+              id="videoUrl"
               type="url"
-              value={formData.demo_video_url}
-              onChange={(e) => setFormData({ ...formData, demo_video_url: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              value={formData.videoUrl || ''}
+              onChange={(e) => setFormData({ ...formData, videoUrl: e.target.value })}
               placeholder="https://..."
             />
           </div>
 
           {/* Actions */}
-          <div className="flex items-center justify-between pt-4 border-t">
+          <div className="flex items-center justify-between pt-4 border-t border-gray-200 dark:border-gray-800">
             <div>
               {isEditMode && (
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
                   onClick={handleDelete}
                   disabled={loading}
-                  className="flex items-center gap-2 px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
+                  className="text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
                 >
-                  <Trash2 className="w-4 h-4" />
+                  <Trash2 className="w-4 h-4 mr-2" />
                   Delete
-                </button>
+                </Button>
               )}
             </div>
             <div className="flex gap-2">
-              <button
+              <Button
                 type="button"
+                variant="ghost"
                 onClick={onClose}
                 disabled={loading}
-                className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
                 type="submit"
                 disabled={loading}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
               >
-                <Save className="w-4 h-4" />
+                <Save className="w-4 h-4 mr-2" />
                 {loading ? 'Saving...' : 'Save'}
-              </button>
+              </Button>
             </div>
           </div>
         </form>

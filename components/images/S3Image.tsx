@@ -13,8 +13,8 @@ interface S3ImageProps {
 export default function S3Image({ s3Key, alt, className, width, height }: S3ImageProps) {
   if (!s3Key) {
     return (
-      <div className="w-full h-full bg-gray-300 flex items-center justify-center">
-        <span className="text-gray-500">No image</span>
+      <div className="w-full h-full bg-gray-300 dark:bg-gray-700 flex items-center justify-center">
+        <span className="text-gray-500 dark:text-gray-400">No image</span>
       </div>
     );
   }

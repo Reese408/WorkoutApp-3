@@ -1,38 +1,31 @@
-// src/components/workouts/WorkoutEditClient.tsx
 'use client';
 
 import { useRouter } from 'next/navigation';
 import WorkoutForm from '@/components/workouts/WorkoutForm';
+import { updateRoutine } from '@/app/actions/routines';
+import type { CreateRoutineFormData, RoutineWithDetails } from '@/lib/types';
 
-export default function WorkoutEditClient({ routineId, initialData }: any) {
+interface WorkoutEditClientProps {
+  routineId: string;
+  initialData: RoutineWithDetails;
+}
+
+export default function WorkoutEditClient({ routineId, initialData }: WorkoutEditClientProps) {
   const router = useRouter();
 
-  const handleSubmit = async (data: any) => {
-    // Transform back to snake_case for API
-    const apiData = {
-      name: data.name,
-      description: data.description,
-      exercises: data.exercises.map((ex: any) => ({
-        exercise_id: ex.exerciseId,     // ← camelCase to snake_case
-        sets: ex.sets,
-        reps: ex.reps,
-        time_minutes: ex.timeMinutes,   // ← camelCase to snake_case
-        order: ex.order
-      }))
-    };
+  const handleSubmit = async (data: CreateRoutineFormData) => {
+    try {
+      const response = await updateRoutine(routineId, data);
 
-    const response = await fetch(`/api/workout-routines/${routineId}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(apiData),
-    });
+      if (!response.success) {
+        throw new Error(response.error || 'Failed to update routine');
+      }
 
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Failed to update routine');
+      router.push('/routines');
+    } catch (error) {
+      console.error('Error updating routine:', error);
+      throw error;
     }
-
-    router.push('/routines');
   };
 
   return (

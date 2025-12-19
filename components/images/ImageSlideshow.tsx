@@ -39,7 +39,7 @@ export default function ImageSlideshow({ images }: ImageSlideshowProps) {
 
   if (!images || images.length === 0) {
     return (
-      <div className="w-full h-[400px] flex items-center justify-center bg-gray-200 text-gray-500 rounded-lg">
+      <div className="w-full h-[400px] flex items-center justify-center bg-gray-200 dark:bg-gray-800 text-gray-500 dark:text-gray-400 rounded-lg">
         No images available
       </div>
     );

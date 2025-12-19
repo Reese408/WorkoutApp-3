@@ -5,45 +5,28 @@ import { headers } from "next/headers";
 import { PrismaClient } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import {
+  type ActionResponse,
+  type SetLogFormData,
+  type StartWorkoutFormData,
+  type CompleteWorkoutFormData,
+  type WorkoutLogWithDetails,
+  type WorkoutHistoryItem,
+  type WorkoutStats,
+  type PersonalRecord,
+  type WorkoutSessionSummary,
+  type ExerciseSummary,
+  setLogSchema,
+  startWorkoutSchema,
+  completeWorkoutSchema,
+} from "@/lib/types";
 
 const prisma = new PrismaClient();
-
-// Validation schemas
-const setLogSchema = z.object({
-  exerciseId: z.string(),
-  setNumber: z.number().int().min(1),
-  reps: z.number().int().min(0).optional(),
-  weight: z.number().min(0).optional(),
-  duration: z.number().int().min(0).optional(),
-  completed: z.boolean().default(true),
-  notes: z.string().optional(),
-});
-
-const startWorkoutSchema = z.object({
-  routineId: z.string().optional(),
-  notes: z.string().optional(),
-});
-
-const completeWorkoutSchema = z.object({
-  workoutId: z.string(),
-  endTime: z.date().optional(),
-  notes: z.string().optional(),
-});
-
-type SetLogData = z.infer<typeof setLogSchema>;
-type StartWorkoutData = z.infer<typeof startWorkoutSchema>;
-type CompleteWorkoutData = z.infer<typeof completeWorkoutSchema>;
-
-type ActionResponse = {
-  success: boolean;
-  error?: string;
-  data?: any;
-};
 
 /**
  * Start a new workout session
  */
-export async function startWorkout(data: StartWorkoutData): Promise<ActionResponse> {
+export async function startWorkout(data: StartWorkoutFormData): Promise<ActionResponse<WorkoutLogWithDetails>> {
   try {
     const session = await auth.api.getSession({
       headers: await headers(),
@@ -78,6 +61,14 @@ export async function startWorkout(data: StartWorkoutData): Promise<ActionRespon
             },
           },
         },
+        setLogs: {
+          include: {
+            exercise: true,
+          },
+          orderBy: {
+            timestamp: "asc",
+          },
+        },
       },
     });
 
@@ -108,7 +99,7 @@ export async function startWorkout(data: StartWorkoutData): Promise<ActionRespon
  */
 export async function logSet(
   workoutId: string,
-  setData: SetLogData
+  setData: SetLogFormData
 ): Promise<ActionResponse> {
   try {
     const session = await auth.api.getSession({
@@ -190,8 +181,8 @@ export async function logSet(
  * Complete a workout session
  */
 export async function completeWorkout(
-  data: CompleteWorkoutData
-): Promise<ActionResponse> {
+  data: CompleteWorkoutFormData
+): Promise<ActionResponse<WorkoutLogWithDetails>> {
   try {
     const session = await auth.api.getSession({
       headers: await headers(),
@@ -238,7 +229,18 @@ export async function completeWorkout(
         notes: validated.notes || existingWorkout.notes,
       },
       include: {
-        routine: true,
+        routine: {
+          include: {
+            exercises: {
+              include: {
+                exercise: true,
+              },
+              orderBy: {
+                orderIndex: "asc",
+              },
+            },
+          },
+        },
         setLogs: {
           include: {
             exercise: true,
@@ -279,7 +281,7 @@ export async function completeWorkout(
 export async function getWorkoutHistory(
   limit = 20,
   offset = 0
-): Promise<ActionResponse> {
+): Promise<ActionResponse<WorkoutHistoryItem[]>> {
   try {
     const session = await auth.api.getSession({
       headers: await headers(),
@@ -333,7 +335,7 @@ export async function getWorkoutHistory(
 /**
  * Get a single workout by ID with all sets
  */
-export async function getWorkout(id: string): Promise<ActionResponse> {
+export async function getWorkout(id: string): Promise<ActionResponse<WorkoutLogWithDetails>> {
   try {
     const session = await auth.api.getSession({
       headers: await headers(),
@@ -450,7 +452,7 @@ export async function deleteWorkout(id: string): Promise<ActionResponse> {
 /**
  * Get personal records for the current user
  */
-export async function getPersonalRecords(): Promise<ActionResponse> {
+export async function getPersonalRecords(): Promise<ActionResponse<PersonalRecord[]>> {
   try {
     const session = await auth.api.getSession({
       headers: await headers(),
@@ -539,9 +541,165 @@ async function updatePersonalRecord(
 }
 
 /**
+ * Get workout session summary for displaying completion stats
+ */
+export async function getWorkoutSessionSummary(
+  sessionId: string
+): Promise<ActionResponse<WorkoutSessionSummary>> {
+  try {
+    const session = await auth.api.getSession({
+      headers: await headers(),
+    });
+
+    // Get the workout log with all details
+    const workoutLog = await prisma.workoutLog.findUnique({
+      where: { id: sessionId },
+      include: {
+        routine: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        setLogs: {
+          include: {
+            exercise: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+          orderBy: {
+            timestamp: "asc",
+          },
+        },
+      },
+    });
+
+    if (!workoutLog) {
+      return {
+        success: false,
+        error: "Workout session not found",
+      };
+    }
+
+    // Verify user owns this workout
+    if (session && workoutLog.userId !== session.user.id) {
+      return {
+        success: false,
+        error: "You can only view your own workouts",
+      };
+    }
+
+    // Calculate summary statistics
+    const totalSets = workoutLog.setLogs.length;
+    const totalReps = workoutLog.setLogs.reduce((sum, set) => sum + (set.reps || 0), 0);
+    const totalWeight = workoutLog.setLogs.reduce(
+      (sum, set) => sum + (set.weight || 0) * (set.reps || 0),
+      0
+    );
+
+    // Group by exercise and calculate exercise-level stats
+    const exerciseMap = new Map<string, ExerciseSummary>();
+
+    workoutLog.setLogs.forEach((set) => {
+      const exerciseId = set.exerciseId;
+      const exerciseName = set.exercise.name;
+
+      if (!exerciseMap.has(exerciseId)) {
+        exerciseMap.set(exerciseId, {
+          exerciseId,
+          exerciseName,
+          sets: 0,
+          totalReps: 0,
+          totalWeight: 0,
+          maxWeight: 0,
+          avgWeight: 0,
+          totalDuration: 0,
+        });
+      }
+
+      const exerciseSummary = exerciseMap.get(exerciseId)!;
+      exerciseSummary.sets += 1;
+      exerciseSummary.totalReps += set.reps || 0;
+      exerciseSummary.totalWeight += (set.weight || 0) * (set.reps || 0);
+      exerciseSummary.maxWeight = Math.max(exerciseSummary.maxWeight, set.weight || 0);
+      exerciseSummary.totalDuration += set.duration || 0;
+    });
+
+    // Calculate average weight for each exercise
+    exerciseMap.forEach((summary) => {
+      if (summary.sets > 0) {
+        const totalWeightLifted = workoutLog.setLogs
+          .filter((set) => set.exerciseId === summary.exerciseId && set.weight)
+          .reduce((sum, set) => sum + (set.weight || 0), 0);
+        const weightSetsCount = workoutLog.setLogs.filter(
+          (set) => set.exerciseId === summary.exerciseId && set.weight
+        ).length;
+        summary.avgWeight = weightSetsCount > 0 ? totalWeightLifted / weightSetsCount : 0;
+      }
+    });
+
+    const exerciseSummaries = Array.from(exerciseMap.values());
+
+    // Calculate duration in minutes
+    const duration =
+      workoutLog.endTime && workoutLog.startTime
+        ? Math.floor(
+            (workoutLog.endTime.getTime() - workoutLog.startTime.getTime()) / 1000 / 60
+          )
+        : workoutLog.totalDuration || 0;
+
+    // Calculate completion rate (if routine exists, compare planned vs completed sets)
+    let completionRate = 100; // Default to 100% if no routine
+
+    const summary: WorkoutSessionSummary = {
+      workoutLog: {
+        id: workoutLog.id,
+        userId: workoutLog.userId,
+        routineId: workoutLog.routineId,
+        startTime: workoutLog.startTime,
+        endTime: workoutLog.endTime,
+        totalDuration: workoutLog.totalDuration,
+        notes: workoutLog.notes,
+        routine: workoutLog.routine
+          ? {
+              id: workoutLog.routine.id,
+              name: workoutLog.routine.name,
+              description: null,
+              isPublic: false,
+              createdBy: workoutLog.userId,
+              createdAt: workoutLog.startTime,
+              updatedAt: workoutLog.startTime,
+            }
+          : null,
+      },
+      totalSets,
+      totalReps,
+      totalWeight,
+      exerciseSummaries,
+      duration,
+      completionRate,
+    };
+
+    return {
+      success: true,
+      data: summary,
+    };
+  } catch (error) {
+    console.error("Failed to get workout summary:", error);
+    return {
+      success: false,
+      error: "Failed to get workout summary",
+    };
+  }
+}
+
+/**
  * Get workout stats/analytics for the current user
  */
-export async function getWorkoutStats(): Promise<ActionResponse> {
+export async function getWorkoutStats(): Promise<ActionResponse<WorkoutStats>> {
   try {
     const session = await auth.api.getSession({
       headers: await headers(),

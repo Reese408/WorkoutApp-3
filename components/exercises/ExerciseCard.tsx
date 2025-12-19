@@ -1,14 +1,17 @@
 'use client';
 
 import { Dumbbell, Target } from 'lucide-react';
+import type { Exercise, ExerciseWithCreator } from '@/lib/types';
 
 interface ExerciseCardProps {
-  exercise: any;
+  exercise: Exercise | ExerciseWithCreator;
   onClick: () => void;
   selectionMode?: boolean;
 }
 
 export default function ExerciseCard({ exercise, onClick, selectionMode = false }: ExerciseCardProps) {
+  const hasCreator = 'creator' in exercise;
+
   return (
     <div
       onClick={onClick}
@@ -19,7 +22,7 @@ export default function ExerciseCard({ exercise, onClick, selectionMode = false 
       <div className="flex items-start justify-between mb-4">
         <div className="flex-1">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">{exercise.name}</h3>
-          {exercise.creator && (
+          {hasCreator && exercise.creator && (
             <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
               Created by {exercise.creator.name || exercise.creator.email}
             </div>

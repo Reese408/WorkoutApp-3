@@ -14,18 +14,19 @@ export default function WorkoutHistory({ initialLogs = [] }: WorkoutHistoryProps
 
   const { data: result, isLoading: loading } = useWorkoutHistory(50, 0);
   const logs = result?.success ? result.data : initialLogs;
+  const safetyLogs = logs || [];
 
-  const filteredLogs = logs.filter((log: any) => {
+  const filteredLogs = safetyLogs.filter((log: any) => {
     if (filter === 'completed') return log.endTime !== null;
     if (filter === 'in-progress') return log.endTime === null;
     return true;
   });
 
   const stats = {
-    total: logs.length,
-    completed: logs.filter((l: any) => l.endTime).length,
-    inProgress: logs.filter((l: any) => !l.endTime).length,
-    totalMinutes: logs.reduce((sum: number, l: any) => sum + (l.totalDuration || 0), 0),
+    total: safetyLogs.length,
+    completed: safetyLogs.filter((l: any) => l.endTime).length,
+    inProgress: safetyLogs.filter((l: any) => !l.endTime).length,
+    totalMinutes: safetyLogs.reduce((sum: number, l: any) => sum + (l.totalDuration || 0), 0),
   };
 
   return (
@@ -112,14 +113,14 @@ export default function WorkoutHistory({ initialLogs = [] }: WorkoutHistoryProps
       {/* Workout Logs List */}
       {loading ? (
         <div className="text-center py-12">
-          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-          <p className="mt-4 text-gray-600">Loading workout history...</p>
+          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 dark:border-blue-400"></div>
+          <p className="mt-4 text-gray-600 dark:text-gray-400">Loading workout history...</p>
         </div>
       ) : filteredLogs.length === 0 ? (
-        <div className="text-center py-12 bg-white rounded-lg shadow">
-          <Calendar className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-          <p className="text-gray-600 mb-2">No workout logs found</p>
-          <p className="text-sm text-gray-500">Start a workout to see it here!</p>
+        <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-200 dark:border-gray-700">
+          <Calendar className="w-16 h-16 text-gray-400 dark:text-gray-500 mx-auto mb-4" />
+          <p className="text-gray-600 dark:text-gray-300 mb-2">No workout logs found</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Start a workout to see it here!</p>
         </div>
       ) : (
         <div className="space-y-4">

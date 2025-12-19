@@ -2,10 +2,10 @@
 
 import { useState, useMemo } from 'react';
 import { Search, Filter, Plus } from 'lucide-react';
-import type { Exercise } from '@/models/Exercise';
+import type { Exercise } from '@/lib/types';
 import ExerciseCard from './ExerciseCard';
 import ExerciseModal from './ExerciseModal';
-import { useExercises } from '@/lib/queries/useExercises';
+import { useExercises } from '@/hooks/use-exercises';
 
 interface ExerciseLibraryProps {
   initialExercises?: Exercise[];
@@ -25,13 +25,12 @@ export default function ExerciseLibrary({
 
   // Use TanStack Query for exercises
   const { data, isLoading: loading } = useExercises({
-    search: searchTerm || undefined,
     category: categoryFilter !== 'all' ? categoryFilter : undefined,
   });
 
-  const exercises = (data?.exercises as any as Exercise[]) || initialExercises;
+  const exercises = data?.data || initialExercises;
 
-  // Filter exercises based on search and category (client-side for instant filtering)
+  // Filter exercises based on search (client-side for instant filtering)
   const filteredExercises = useMemo(() => {
     let filtered = exercises;
 
@@ -40,7 +39,7 @@ export default function ExerciseLibrary({
       filtered = filtered.filter(exercise =>
         exercise.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         exercise.category?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        exercise.muscle_groups?.some((mg: string) => mg.toLowerCase().includes(searchTerm.toLowerCase()))
+        exercise.muscleGroups?.some((mg: string) => mg.toLowerCase().includes(searchTerm.toLowerCase()))
       );
     }
 

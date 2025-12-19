@@ -1,48 +1,35 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Play, Pause, Check, X, Clock, Dumbbell } from 'lucide-react';
+import { Play, Check, X, Clock, Dumbbell } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { getRoutine } from '@/app/actions/routines';
+import { startWorkout, logSet, completeWorkout } from '@/app/actions/workouts';
+import type { RoutineWithDetails, WorkoutExerciseWithExercise } from '@/lib/types';
 
-interface WorkoutExercise {
-  id: string;
-  exerciseName: string;
-  sets: number;
-  reps: number;
-  timeMinutes: number;
-  order: number;
-}
-
-interface Workout {
-  id: string;
-  name: string;
-  description: string;
-  exercises: WorkoutExercise[];
-  totalTime: number;
-}
-
-interface SetLog {
+interface SetLogState {
   exerciseId: string;
   setNumber: number;
   reps: number;
+  weight: number;
   completed: boolean;
 }
 
 export default function WorkoutLogger({ workoutId }: { workoutId: string }) {
   const router = useRouter();
-  const [workout, setWorkout] = useState<Workout | null>(null);
+  const [routine, setRoutine] = useState<RoutineWithDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [currentExerciseIndex, setCurrentExerciseIndex] = useState(0);
-  const [setLogs, setSetLogs] = useState<SetLog[]>([]);
-  const [workoutStartTime, setWorkoutStartTime] = useState<Date | null>(null);
+  const [setLogs, setSetLogs] = useState<SetLogState[]>([]);
+  const [workoutLogId, setWorkoutLogId] = useState<string | null>(null);
   const [isWorkoutActive, setIsWorkoutActive] = useState(false);
   const [timer, setTimer] = useState(0);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
 
-  // Fetch workout data
+  // Fetch routine data
   useEffect(() => {
-    fetchWorkout();
+    fetchRoutine();
   }, [workoutId]);
 
   // Timer logic
@@ -56,45 +43,62 @@ export default function WorkoutLogger({ workoutId }: { workoutId: string }) {
     return () => clearInterval(interval);
   }, [isWorkoutActive]);
 
-  const fetchWorkout = async () => {
+  const fetchRoutine = async () => {
     try {
-      const response = await fetch(`/api/workout-routines/${workoutId}`);
-      if (!response.ok) throw new Error('Failed to fetch workout');
-      
-      const data = await response.json();
-      setWorkout(data.workout);
+      const response = await getRoutine(workoutId);
 
-      // Initialize set logs
-      const logs: SetLog[] = [];
-      data.workout.exercises.forEach((exercise: WorkoutExercise) => {
-        for (let i = 1; i <= exercise.sets; i++) {
+      if (!response.success || !response.data) {
+        throw new Error(response.error || 'Failed to fetch routine');
+      }
+
+      setRoutine(response.data);
+
+      // Initialize set logs from routine exercises
+      const logs: SetLogState[] = [];
+      response.data.exercises.forEach((workoutExercise) => {
+        for (let i = 1; i <= workoutExercise.targetSets; i++) {
           logs.push({
-            exerciseId: exercise.id,
+            exerciseId: workoutExercise.exerciseId,
             setNumber: i,
-            reps: exercise.reps,
+            reps: workoutExercise.targetReps || 0,
+            weight: 0,
             completed: false,
           });
         }
       });
       setSetLogs(logs);
     } catch (error) {
-      console.error('Error fetching workout:', error);
+      console.error('Error fetching routine:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  const startWorkout = () => {
-    setIsWorkoutActive(true);
-    setWorkoutStartTime(new Date());
-    setTimer(0);
+  const handleStartWorkout = async () => {
+    try {
+      const response = await startWorkout({
+        routineId: workoutId,
+        notes,
+      });
+
+      if (!response.success || !response.data) {
+        throw new Error(response.error || 'Failed to start workout');
+      }
+
+      setWorkoutLogId(response.data.id);
+      setIsWorkoutActive(true);
+      setTimer(0);
+    } catch (error) {
+      console.error('Error starting workout:', error);
+      alert('Failed to start workout. Please try again.');
+    }
   };
 
-  const completeSet = (exerciseId: string, setNumber: number, reps: number) => {
+  const completeSet = (exerciseId: string, setNumber: number, reps: number, weight: number) => {
     setSetLogs((prev) =>
       prev.map((log) =>
         log.exerciseId === exerciseId && log.setNumber === setNumber
-          ? { ...log, reps, completed: true }
+          ? { ...log, reps, weight, completed: true }
           : log
       )
     );
@@ -110,46 +114,45 @@ export default function WorkoutLogger({ workoutId }: { workoutId: string }) {
     );
   };
 
+  const handleLogSet = async (exerciseId: string, setNumber: number, reps: number, weight: number) => {
+    if (!workoutLogId) return;
+
+    try {
+      const response = await logSet(workoutLogId, {
+        exerciseId,
+        setNumber,
+        reps,
+        weight,
+        completed: true,
+      });
+
+      if (!response.success) {
+        throw new Error(response.error || 'Failed to log set');
+      }
+
+      completeSet(exerciseId, setNumber, reps, weight);
+    } catch (error) {
+      console.error('Error logging set:', error);
+      alert('Failed to log set. Please try again.');
+    }
+  };
+
   const finishWorkout = async () => {
-    if (!workout || !workoutStartTime) return;
+    if (!workoutLogId) return;
 
     setSaving(true);
     try {
-      // Save workout log
-      const logResponse = await fetch('/api/workout-logs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          workoutId: workout.id,
-          startedAt: workoutStartTime.toISOString(),
-          completedAt: new Date().toISOString(),
-          notes,
-        }),
+      const response = await completeWorkout({
+        workoutId: workoutLogId,
+        notes,
       });
 
-      if (!logResponse.ok) throw new Error('Failed to save workout log');
-      const logData = await logResponse.json();
-      const workoutLogId = logData.workoutLog.id;
-
-      // Save set logs
-      const completedSets = setLogs.filter((log) => log.completed);
-      if (completedSets.length > 0) {
-        await fetch('/api/set-logs', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            workoutLogId,
-            sets: completedSets.map((log) => ({
-              exerciseId: log.exerciseId,
-              setNumber: log.setNumber,
-              reps: log.reps,
-            })),
-          }),
-        });
+      if (!response.success) {
+        throw new Error(response.error || 'Failed to complete workout');
       }
 
-      // Redirect to workout history
-      router.push('/workout-history');
+      // Redirect to workout summary
+      router.push(`/workouts/summary?session=${workoutLogId}`);
     } catch (error) {
       console.error('Error saving workout:', error);
       alert('Failed to save workout. Please try again.');
@@ -186,21 +189,21 @@ export default function WorkoutLogger({ workoutId }: { workoutId: string }) {
     return (
       <div className="text-center py-12">
         <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent"></div>
-        <p className="mt-4 text-gray-600">Loading workout...</p>
+        <p className="mt-4 text-gray-600">Loading routine...</p>
       </div>
     );
   }
 
-  if (!workout) {
+  if (!routine) {
     return (
       <div className="text-center py-12">
-        <p className="text-red-600">Workout not found</p>
+        <p className="text-red-600">Routine not found</p>
       </div>
     );
   }
 
-  const currentExercise = workout.exercises[currentExerciseIndex];
-  const isLastExercise = currentExerciseIndex === workout.exercises.length - 1;
+  const currentExercise = routine.exercises[currentExerciseIndex];
+  const isLastExercise = currentExerciseIndex === routine.exercises.length - 1;
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -208,9 +211,9 @@ export default function WorkoutLogger({ workoutId }: { workoutId: string }) {
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">{workout.name}</h1>
-            {workout.description && (
-              <p className="text-gray-600 mt-1">{workout.description}</p>
+            <h1 className="text-2xl font-bold text-gray-900">{routine.name}</h1>
+            {routine.description && (
+              <p className="text-gray-600 mt-1">{routine.description}</p>
             )}
           </div>
           {isWorkoutActive && (
@@ -226,7 +229,7 @@ export default function WorkoutLogger({ workoutId }: { workoutId: string }) {
         <div className="flex items-center gap-6 text-sm text-gray-600">
           <span className="flex items-center gap-1">
             <Dumbbell size={16} />
-            {workout.exercises.length} exercises
+            {routine.exercises.length} exercises
           </span>
           <span>
             {getTotalCompletedSets()} / {setLogs.length} sets completed
@@ -235,7 +238,7 @@ export default function WorkoutLogger({ workoutId }: { workoutId: string }) {
 
         {!isWorkoutActive && (
           <button
-            onClick={startWorkout}
+            onClick={handleStartWorkout}
             className="mt-4 w-full flex items-center justify-center gap-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
           >
             <Play size={20} />
@@ -249,19 +252,19 @@ export default function WorkoutLogger({ workoutId }: { workoutId: string }) {
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Exercises</h2>
           <div className="space-y-3">
-            {workout.exercises.map((exercise, index) => (
+            {routine.exercises.map((workoutExercise, index) => (
               <div
-                key={exercise.id}
+                key={workoutExercise.id}
                 className="flex items-center justify-between p-4 bg-gray-50 rounded-lg"
               >
                 <div>
                   <span className="text-sm font-medium text-gray-500 mr-2">
                     {index + 1}.
                   </span>
-                  <span className="font-medium text-gray-900">{exercise.exerciseName}</span>
+                  <span className="font-medium text-gray-900">{workoutExercise.exercise.name}</span>
                 </div>
                 <span className="text-sm text-gray-600">
-                  {exercise.sets} × {exercise.reps} reps
+                  {workoutExercise.targetSets} × {workoutExercise.targetReps || 0} reps
                 </span>
               </div>
             ))}
@@ -275,23 +278,23 @@ export default function WorkoutLogger({ workoutId }: { workoutId: string }) {
           <div className="flex items-center justify-between mb-4">
             <div>
               <span className="text-sm text-gray-500">
-                Exercise {currentExerciseIndex + 1} of {workout.exercises.length}
+                Exercise {currentExerciseIndex + 1} of {routine.exercises.length}
               </span>
               <h2 className="text-2xl font-bold text-gray-900 mt-1">
-                {currentExercise.exerciseName}
+                {currentExercise.exercise.name}
               </h2>
             </div>
             <div className="text-right">
               <span className="text-sm text-gray-500">Sets Completed</span>
               <p className="text-2xl font-bold text-blue-600">
-                {getCompletedSetsCount(currentExercise.id)} / {currentExercise.sets}
+                {getCompletedSetsCount(currentExercise.exerciseId)} / {currentExercise.targetSets}
               </p>
             </div>
           </div>
 
           {/* Sets */}
           <div className="space-y-3">
-            {getSetsForExercise(currentExercise.id).map((setLog) => (
+            {getSetsForExercise(currentExercise.exerciseId).map((setLog) => (
               <div
                 key={`${setLog.exerciseId}-${setLog.setNumber}`}
                 className={`flex items-center justify-between p-4 rounded-lg border-2 transition-colors ${
@@ -321,6 +324,23 @@ export default function WorkoutLogger({ workoutId }: { workoutId: string }) {
                     placeholder="Reps"
                   />
                   <span className="text-sm text-gray-600">reps</span>
+                  <input
+                    type="number"
+                    value={setLog.weight}
+                    onChange={(e) =>
+                      setSetLogs((prev) =>
+                        prev.map((log) =>
+                          log.exerciseId === setLog.exerciseId &&
+                          log.setNumber === setLog.setNumber
+                            ? { ...log, weight: parseFloat(e.target.value) || 0 }
+                            : log
+                        )
+                      )
+                    }
+                    className="w-20 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                    placeholder="Weight"
+                  />
+                  <span className="text-sm text-gray-600">lbs</span>
                 </div>
 
                 {setLog.completed ? (
@@ -334,7 +354,7 @@ export default function WorkoutLogger({ workoutId }: { workoutId: string }) {
                 ) : (
                   <button
                     onClick={() =>
-                      completeSet(setLog.exerciseId, setLog.setNumber, setLog.reps)
+                      handleLogSet(setLog.exerciseId, setLog.setNumber, setLog.reps, setLog.weight)
                     }
                     className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
                   >

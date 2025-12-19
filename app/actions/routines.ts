@@ -5,45 +5,19 @@ import { headers } from "next/headers";
 import { PrismaClient } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import {
+  type ActionResponse,
+  type CreateRoutineFormData,
+  type RoutineWithDetails,
+  createRoutineSchema,
+} from "@/lib/types";
 
 const prisma = new PrismaClient();
-
-// Validation schemas
-const routineSchema = z.object({
-  name: z.string().min(1, "Name is required"),
-  description: z.string().optional(),
-  isPublic: z.boolean().default(false),
-});
-
-const workoutExerciseSchema = z.object({
-  exerciseId: z.string().min(1, "Exercise is required"),
-  orderIndex: z.number().int().min(0),
-  targetSets: z.number().int().min(1, "At least 1 set required"),
-  targetReps: z.number().int().min(1).optional(),
-  targetDuration: z.number().int().min(1).optional(),
-  restPeriod: z.number().int().min(0).optional(),
-  notes: z.string().optional(),
-  supersetGroup: z.number().int().min(0).optional(),
-});
-
-const createRoutineSchema = routineSchema.extend({
-  exercises: z.array(workoutExerciseSchema).min(1, "At least one exercise is required"),
-});
-
-type RoutineFormData = z.infer<typeof routineSchema>;
-type CreateRoutineData = z.infer<typeof createRoutineSchema>;
-type WorkoutExerciseData = z.infer<typeof workoutExerciseSchema>;
-
-type ActionResponse = {
-  success: boolean;
-  error?: string;
-  data?: any;
-};
 
 /**
  * Get all workout routines for the current user
  */
-export async function getUserRoutines(includePublic = false): Promise<ActionResponse> {
+export async function getUserRoutines(includePublic = false): Promise<ActionResponse<RoutineWithDetails[]>> {
   try {
     const session = await auth.api.getSession({
       headers: await headers(),
@@ -110,7 +84,7 @@ export async function getUserRoutines(includePublic = false): Promise<ActionResp
 /**
  * Get a single routine by ID with all exercises
  */
-export async function getRoutine(id: string): Promise<ActionResponse> {
+export async function getRoutine(id: string): Promise<ActionResponse<RoutineWithDetails>> {
   try {
     const routine = await prisma.workoutRoutine.findUnique({
       where: { id },
@@ -161,7 +135,7 @@ export async function getRoutine(id: string): Promise<ActionResponse> {
 /**
  * Create a new workout routine with exercises
  */
-export async function createRoutine(data: CreateRoutineData): Promise<ActionResponse> {
+export async function createRoutine(data: CreateRoutineFormData): Promise<ActionResponse<RoutineWithDetails>> {
   try {
     const session = await auth.api.getSession({
       headers: await headers(),
@@ -208,6 +182,13 @@ export async function createRoutine(data: CreateRoutineData): Promise<ActionResp
       return await tx.workoutRoutine.findUnique({
         where: { id: newRoutine.id },
         include: {
+          creator: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
           exercises: {
             include: {
               exercise: true,
@@ -216,11 +197,23 @@ export async function createRoutine(data: CreateRoutineData): Promise<ActionResp
               orderIndex: "asc",
             },
           },
+          _count: {
+            select: {
+              workoutLogs: true,
+            },
+          },
         },
       });
     });
 
     revalidatePath("/routines");
+
+    if (!routine) {
+      return {
+        success: false,
+        error: "Failed to create routine",
+      };
+    }
 
     return {
       success: true,
@@ -247,8 +240,8 @@ export async function createRoutine(data: CreateRoutineData): Promise<ActionResp
  */
 export async function updateRoutine(
   id: string,
-  data: CreateRoutineData
-): Promise<ActionResponse> {
+  data: CreateRoutineFormData
+): Promise<ActionResponse<RoutineWithDetails>> {
   try {
     const session = await auth.api.getSession({
       headers: await headers(),
@@ -319,6 +312,13 @@ export async function updateRoutine(
       return await tx.workoutRoutine.findUnique({
         where: { id },
         include: {
+          creator: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
           exercises: {
             include: {
               exercise: true,
@@ -327,12 +327,24 @@ export async function updateRoutine(
               orderIndex: "asc",
             },
           },
+          _count: {
+            select: {
+              workoutLogs: true,
+            },
+          },
         },
       });
     });
 
     revalidatePath("/routines");
     revalidatePath(`/routines/${id}`);
+
+    if (!routine) {
+      return {
+        success: false,
+        error: "Failed to update routine",
+      };
+    }
 
     return {
       success: true,

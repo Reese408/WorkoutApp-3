@@ -1,18 +1,20 @@
+'use client';
+
 import WorkoutItem from "./WorkoutItem";
-import { Workout } from "../../models/Workout";
+import type { RoutineWithDetails } from "@/lib/types";
 
 interface WorkoutGridProps {
-  workout: Workout[];
+  routines: RoutineWithDetails[];
 }
 
-export default function WorkoutGrid({ workout }: WorkoutGridProps) {
-    return(
-      <ul className="">
-        {workout.map((workout: Workout) => (
-          <li key={workout.id}>
-            <WorkoutItem workout={workout} />
-          </li>
-        ))}
-      </ul>
-    );
+export default function WorkoutGrid({ routines }: WorkoutGridProps) {
+  return (
+    <ul className="grid grid-cols-1 gap-6">
+      {routines.map((routine) => (
+        <li key={routine.id}>
+          <WorkoutItem routine={routine} />
+        </li>
+      ))}
+    </ul>
+  );
 }

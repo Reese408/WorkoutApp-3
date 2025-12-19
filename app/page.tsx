@@ -13,7 +13,7 @@ export default async function Home() {
       <main className="flex flex-col items-center gap-8 p-8 bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-md w-full relative">
         {/* Theme toggle in top right */}
         <div className="absolute top-4 right-4">
-          <ModeToggle />
+          {session ? <ModeToggle /> : null}
         </div>
 
         <div className="text-center mt-8">
@@ -21,7 +21,7 @@ export default async function Home() {
             Workout Tracker
           </h1>
           <p className="text-gray-600 dark:text-gray-300">
-            Track your fitness journey with precision
+            Track your fitness journey with precision, hell worlds!!!
           </p>
         </div>
 

@@ -1,9 +1,8 @@
-// components/exercises/ExerciseCardLink.tsx
 'use client';
 
 import { useRouter } from 'next/navigation';
 import ExerciseCard from './ExerciseCard';
-import type { Exercise } from '@/models/Exercise';
+import type { Exercise } from '@/lib/types';
 
 interface ExerciseCardLinkProps {
   exercise: Exercise;
