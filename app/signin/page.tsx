@@ -1,12 +1,15 @@
 import Link from "next/link";
 import { AuthForm } from "@/components/ui/auth-form";
+import { OAuthButtons } from "@/components/ui/oauth-buttons";
 import { signInAction } from "../actions/auth";
 
 export default function SignInPage() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50">
-      <div className="w-full max-w-md p-8 bg-white rounded-lg shadow-md">
-        <h1 className="text-2xl font-bold text-center mb-6">Sign In</h1>
+    <div className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-gray-900">
+      <div className="w-full max-w-md p-8 bg-white dark:bg-gray-800 rounded-lg shadow-md">
+        <h1 className="text-2xl font-bold text-center mb-6 text-gray-900 dark:text-white">Sign In</h1>
+
+        <OAuthButtons />
 
         <AuthForm action={signInAction} type="signin" />
 

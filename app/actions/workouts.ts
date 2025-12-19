@@ -340,7 +340,6 @@ export async function getWorkoutHistory(
     const workouts = await prisma.workoutLog.findMany({
       where: {
         userId: session.user.id,
-        endTime: { not: null }, // Only completed workouts
       },
       include: {
         routine: {

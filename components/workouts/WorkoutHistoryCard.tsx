@@ -121,12 +121,18 @@ export default function WorkoutHistoryCard({ log, onRefresh }: WorkoutHistoryCar
             Routine Deleted
           </div>
         )}
-        <Link
-          href={`/workouts/summary?log=${log.id}`}
-          className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm"
-        >
-          View Details
-        </Link>
+        {log.routineId ? (
+          <Link
+            href={`/routines/${log.routineId}/summary?log=${log.id}`}
+            className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm"
+          >
+            View Details
+          </Link>
+        ) : (
+          <div className="px-4 py-2 bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 rounded-lg text-sm cursor-not-allowed">
+            No Details Available
+          </div>
+        )}
       </div>
     </div>
   );
