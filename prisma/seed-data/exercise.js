@@ -1,6 +1,4 @@
-import type { ExerciseFormData } from "@/lib/types";
-
-export const exercises: ExerciseFormData[] = [
+export const exercises = [
   // ======================
   // CHEST
   // ======================
