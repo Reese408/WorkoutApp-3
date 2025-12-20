@@ -28,6 +28,7 @@ interface WorkoutSummaryClientProps {
   exerciseGroups: Record<string, SetLog[]>;
   workoutLogId: string;
   routineId: string | null;
+  isCompleted: boolean;
 }
 
 export default function WorkoutSummaryClient({
@@ -38,16 +39,21 @@ export default function WorkoutSummaryClient({
   durationMinutes,
   exerciseGroups,
   routineId,
+  isCompleted,
 }: WorkoutSummaryClientProps) {
   const router = useRouter();
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-blue-50 via-white to-purple-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900">
-      {/* Celebration Header */}
+      {/* Header */}
       <motion.div
         initial={{ y: -50, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
-        className="bg-gradient-to-r from-green-500 to-emerald-600 text-white"
+        className={`${
+          isCompleted
+            ? 'bg-gradient-to-r from-green-500 to-emerald-600'
+            : 'bg-gradient-to-r from-blue-500 to-purple-600'
+        } text-white`}
       >
         <div className="max-w-4xl mx-auto px-4 py-12 text-center">
           <motion.div
@@ -55,7 +61,11 @@ export default function WorkoutSummaryClient({
             animate={{ scale: 1 }}
             transition={{ delay: 0.2, type: 'spring' }}
           >
-            <Trophy className="w-24 h-24 mx-auto mb-4" />
+            {isCompleted ? (
+              <Trophy className="w-24 h-24 mx-auto mb-4" />
+            ) : (
+              <Dumbbell className="w-24 h-24 mx-auto mb-4" />
+            )}
           </motion.div>
           <motion.h1
             initial={{ opacity: 0 }}
@@ -63,16 +73,26 @@ export default function WorkoutSummaryClient({
             transition={{ delay: 0.4 }}
             className="text-4xl font-bold mb-2"
           >
-            Workout Complete! 🎉
+            {isCompleted ? 'Workout Complete! 🎉' : 'Workout Summary'}
           </motion.h1>
           <motion.p
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.5 }}
-            className="text-green-100 text-lg"
+            className={isCompleted ? 'text-green-100 text-lg' : 'text-blue-100 text-lg'}
           >
             {workoutName}
           </motion.p>
+          {!isCompleted && (
+            <motion.p
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.6 }}
+              className="text-blue-200 text-sm mt-2"
+            >
+              In Progress - Continue from workout history
+            </motion.p>
+          )}
         </div>
       </motion.div>
 
@@ -220,19 +240,37 @@ export default function WorkoutSummaryClient({
           {routineId && (
             <Button
               onClick={() => router.push(`/routines/${routineId}/execute`)}
-              variant="outline"
+              variant={isCompleted ? "outline" : "default"}
               size="lg"
-              className="h-14 gap-2"
+              className={`h-14 gap-2 ${
+                !isCompleted
+                  ? 'bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white'
+                  : ''
+              }`}
             >
-              <Repeat className="w-5 h-5" />
-              Do It Again
+              {isCompleted ? (
+                <>
+                  <Repeat className="w-5 h-5" />
+                  Do It Again
+                </>
+              ) : (
+                <>
+                  <Dumbbell className="w-5 h-5" />
+                  Continue Workout
+                </>
+              )}
             </Button>
           )}
 
           <Button
             onClick={() => router.push('/workouts/history')}
             size="lg"
-            className="h-14 gap-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
+            variant={isCompleted ? "default" : "outline"}
+            className={`h-14 gap-2 ${
+              isCompleted
+                ? 'bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700'
+                : ''
+            }`}
           >
             View Workout History
             <ChevronRight className="w-5 h-5" />

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   CheckCircle2,
@@ -18,6 +19,7 @@ import {
   Minus
 } from 'lucide-react';
 import { startWorkout, logSet, completeWorkout, getExercisePRs } from '@/app/actions/workouts';
+import { workoutKeys } from '@/hooks/use-workouts';
 import type { WorkoutExerciseWithExercise } from '@/lib/types';
 import {
   AlertDialog,
@@ -51,6 +53,7 @@ export default function WorkoutExecutionClient({
   workoutTitle: string;
 }) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [, startTransition] = useTransition();
 
   // State
@@ -310,6 +313,10 @@ export default function WorkoutExecutionClient({
         if (!result.success) {
           throw new Error(result.error || 'Failed to complete workout');
         }
+
+        // Invalidate workout history cache so it refreshes
+        queryClient.invalidateQueries({ queryKey: workoutKeys.history() });
+        queryClient.invalidateQueries({ queryKey: workoutKeys.stats() });
 
         router.push(`/routines/${workoutId}/summary?log=${workoutLogId}`);
       });
@@ -715,7 +722,11 @@ export default function WorkoutExecutionClient({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Continue Workout</AlertDialogCancel>
-            <AlertDialogAction onClick={() => router.push('/workouts/history')}>
+            <AlertDialogAction onClick={() => {
+              // Invalidate workout history cache so in-progress workout shows up
+              queryClient.invalidateQueries({ queryKey: workoutKeys.history() });
+              router.push('/workouts/history');
+            }}>
               Save & Exit
             </AlertDialogAction>
           </AlertDialogFooter>

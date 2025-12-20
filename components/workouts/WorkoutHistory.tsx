@@ -12,7 +12,7 @@ interface WorkoutHistoryProps {
 export default function WorkoutHistory({ initialLogs = [] }: WorkoutHistoryProps) {
   const [filter, setFilter] = useState<'all' | 'completed' | 'in-progress'>('all');
 
-  const { data: result, isLoading: loading } = useWorkoutHistory(50, 0);
+  const { data: result, isLoading: loading, refetch } = useWorkoutHistory(50, 0);
   const logs = result?.success ? result.data : initialLogs;
   const safetyLogs = logs || [];
 
@@ -128,7 +128,7 @@ export default function WorkoutHistory({ initialLogs = [] }: WorkoutHistoryProps
             <WorkoutHistoryCard
               key={log.id}
               log={log}
-              onRefresh={() => {}}
+              onRefresh={refetch}
             />
           ))}
         </div>

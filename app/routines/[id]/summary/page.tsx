@@ -93,6 +93,7 @@ export default async function WorkoutSummaryPage({
       exerciseGroups={exerciseGroups}
       workoutLogId={workoutLog.id}
       routineId={workoutLog.routineId}
+      isCompleted={!!workoutLog.endTime}
     />
   );
 }

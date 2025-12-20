@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { getWorkoutStats, getPersonalRecords } from "@/app/actions/workouts";
 import LogoutButton from "@/components/LogoutButton";
 import { ModeToggle } from "@/components/toggle-theme";
+import TwoFactorSettings from "@/components/security/TwoFactorSettings";
 import {
   User,
   Mail,
@@ -178,6 +179,9 @@ export default async function ProfilePage() {
                 )}
               </div>
             </div>
+
+            {/* Two-Factor Authentication Settings */}
+            <TwoFactorSettings initialEnabled={(session.user as any).twoFactorEnabled || false} />
 
             {/* Empty State for Stats */}
             {!stats && (
